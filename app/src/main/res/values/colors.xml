@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Zelland Brand Colors -->
+    <color name="zelland_primary">#FF6B35</color>
+    <color name="zelland_primary_dark">#CC5629</color>
+    <color name="zelland_accent">#3DDC84</color>
+
+    <!-- Status Colors -->
+    <color name="status_connected">#4CAF50</color>
+    <color name="status_connecting">#FFC107</color>
+    <color name="status_disconnected">#9E9E9E</color>
+    <color name="status_error">#F44336</color>
+
+    <!-- Terminal Colors -->
+    <color name="terminal_background">#1E1E1E</color>
+    <color name="terminal_foreground">#D4D4D4</color>
+
+    <!-- Material Design Defaults -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="gray_light">#FFEEEEEE</color>
+    <color name="gray_dark">#FF424242</color>
+</resources>

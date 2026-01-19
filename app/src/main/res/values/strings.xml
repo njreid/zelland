@@ -1,0 +1,69 @@
+<resources>
+    <string name="app_name">Zelland</string>
+
+    <!-- SSH Configuration -->
+    <string name="ssh_config_title">SSH Configuration</string>
+    <string name="ssh_host">Host</string>
+    <string name="ssh_host_hint">example.com</string>
+    <string name="ssh_port">Port</string>
+    <string name="ssh_port_hint">22</string>
+    <string name="ssh_username">Username</string>
+    <string name="ssh_username_hint">user</string>
+    <string name="ssh_auth_method">Authentication Method</string>
+    <string name="ssh_auth_password">Password</string>
+    <string name="ssh_auth_private_key">Private Key</string>
+    <string name="ssh_password">Password</string>
+    <string name="ssh_password_hint">••••••••</string>
+    <string name="ssh_private_key_path">Private Key Path</string>
+    <string name="ssh_private_key_hint">/path/to/id_rsa</string>
+    <string name="ssh_key_passphrase">Key Passphrase (optional)</string>
+    <string name="ssh_key_passphrase_hint">••••••••</string>
+    <string name="ssh_save_connection">Save Connection</string>
+
+    <!-- Buttons -->
+    <string name="btn_test_connection">Test Connection</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_connect">Connect</string>
+    <string name="btn_disconnect">Disconnect</string>
+    <string name="btn_add_session">Add Session</string>
+    <string name="btn_browse">Browse</string>
+
+    <!-- Status Messages -->
+    <string name="status_connecting">Connecting to %1$s…</string>
+    <string name="status_connected">Connected to %1$s</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_testing">Testing connection…</string>
+
+    <!-- Error Messages -->
+    <string name="error_connection_failed">SSH connection failed</string>
+    <string name="error_auth_failed">Authentication failed. Check your credentials.</string>
+    <string name="error_host_unreachable">Host unreachable. Check your network connection.</string>
+    <string name="error_timeout">Connection timeout</string>
+    <string name="error_invalid_key">Invalid private key</string>
+    <string name="error_invalid_port">Invalid port number</string>
+    <string name="error_empty_host">Host cannot be empty</string>
+    <string name="error_empty_username">Username cannot be empty</string>
+    <string name="error_empty_password">Password cannot be empty</string>
+    <string name="error_network_unavailable">Network unavailable</string>
+
+    <!-- Success Messages -->
+    <string name="success_connection_test">Connection successful!</string>
+    <string name="success_connection_saved">Connection saved</string>
+
+    <!-- Session Management -->
+    <string name="session_title_default">Terminal %1$d</string>
+    <string name="session_reconnect">Reconnect</string>
+    <string name="session_soft_disconnect">Disconnect (Keep Running)</string>
+    <string name="session_hard_disconnect">Kill Session</string>
+    <string name="session_delete_confirm">Kill this session and all running processes?</string>
+
+    <!-- Menu -->
+    <string name="menu_settings">Settings</string>
+    <string name="menu_close_session">Close Session</string>
+    <string name="menu_new_session">New Session</string>
+
+    <!-- Content Descriptions -->
+    <string name="cd_add_session">Add new session</string>
+    <string name="cd_session_indicator">Session indicator</string>
+</resources>

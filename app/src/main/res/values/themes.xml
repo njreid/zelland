@@ -1,0 +1,23 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme -->
+    <style name="Base.Theme.Zelland" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/zelland_primary</item>
+        <item name="colorPrimaryDark">@color/zelland_primary_dark</item>
+        <item name="colorAccent">@color/zelland_accent</item>
+        <item name="android:statusBarColor">@color/terminal_background</item>
+        <item name="android:navigationBarColor">@color/terminal_background</item>
+    </style>
+
+    <style name="Theme.Zelland" parent="Base.Theme.Zelland" />
+
+    <!-- Button Styles -->
+    <style name="Widget.Zelland.Button" parent="Widget.Material3.Button">
+        <item name="backgroundTint">@color/zelland_primary</item>
+        <item name="android:textColor">@color/white</item>
+    </style>
+
+    <style name="Widget.Zelland.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="strokeColor">@color/zelland_primary</item>
+        <item name="android:textColor">@color/zelland_primary</item>
+    </style>
+</resources>
