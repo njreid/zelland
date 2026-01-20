@@ -144,15 +144,37 @@ class TerminalViewModel : ViewModel() {
                 android.util.Log.i("TerminalViewModel",
                     "Zellij web started on port $remotePort")
 
-                // Step 5: Update session (port forwarding will be added in Milestone 3)
+                // Step 5: Get Tailscale IP
+                _connectionStatus.postValue(
+                    ConnectionStatus.Connecting("Getting Tailscale IP...")
+                )
+                val tailscaleIP = zellijManager.getTailscaleIP()
+                    ?: session.sshConfig.host  // Fallback to SSH host if Tailscale not available
+
+                android.util.Log.i("TerminalViewModel", "Tailscale IP: $tailscaleIP")
+
+                // Step 6: Get or create authentication token
+                _connectionStatus.postValue(
+                    ConnectionStatus.Connecting("Getting authentication token...")
+                )
+                val authToken = zellijManager.getOrCreateAuthToken()
+
+                android.util.Log.d("TerminalViewModel", "Got Zellij auth token")
+
+                // Step 7: Build Zellij web URL
+                val zellijUrl = "http://$tailscaleIP:$remotePort/${session.zellijSessionName}?token=$authToken"
+
+                android.util.Log.i("TerminalViewModel", "Zellij URL: http://$tailscaleIP:$remotePort/${session.zellijSessionName}")
+
+                // Step 8: Update session with URL
                 updateSession(session.copy(
                     isConnected = true,
-                    // localUrl will be set in Milestone 3 after port forwarding
+                    localUrl = zellijUrl,
                     lastConnected = System.currentTimeMillis()
                 ))
 
                 _connectionStatus.postValue(
-                    ConnectionStatus.Connected("Connected to ${session.title} (Zellij on port $remotePort)")
+                    ConnectionStatus.Connected("Connected to ${session.title}")
                 )
 
             } catch (e: ZellijManager.ZellijException.NotInstalled) {

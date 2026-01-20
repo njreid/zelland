@@ -131,12 +131,42 @@ cd zelland
 
 ### Build
 
+**Option A: Using Task (Recommended)**
+```bash
+# Install Task first: https://taskfile.dev
+# macOS: brew install go-task
+# Linux: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+
+# Build and run
+task run
+
+# Full development workflow with logs
+task dev
+
+# Push to remote emulator
+task push -- hostname
+
+# See all available commands
+task
+```
+
+**Option B: Using Gradle**
 ```bash
 ./gradlew assembleDebug
 ```
 
+See **[TASKFILE_USAGE.md](TASKFILE_USAGE.md)** for complete Task documentation.
+
 ### Run Tests
 
+**Using Task:**
+```bash
+task test              # Unit tests
+task lint              # Lint checks
+task check             # All checks
+```
+
+**Using Gradle:**
 ```bash
 # Unit tests
 ./gradlew test
@@ -147,6 +177,13 @@ cd zelland
 
 ### Install on Device
 
+**Using Task:**
+```bash
+task install           # Local device
+task push -- hostname  # Remote emulator
+```
+
+**Using Gradle:**
 ```bash
 ./gradlew installDebug
 ```
@@ -210,6 +247,9 @@ See [CHANGES_ZELLIJ.md](CHANGES_ZELLIJ.md) for detailed implementation milestone
 - **[DESIGN.md](DESIGN.md)** - Complete architecture and design document
 - **[CHANGES_ZELLIJ.md](CHANGES_ZELLIJ.md)** - Step-by-step implementation plan
 - **[SSH_INTEGRATION.md](SSH_INTEGRATION.md)** - SSH and Zellij integration guide
+- **[BUILD.md](BUILD.md)** - Build system and troubleshooting
+- **[TASKFILE_USAGE.md](TASKFILE_USAGE.md)** - Task automation guide
+- **[QUICKSTART.md](QUICKSTART.md)** - 5-minute setup guide
 
 ## Contributing
 

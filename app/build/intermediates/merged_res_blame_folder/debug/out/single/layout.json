@@ -1,0 +1,18 @@
+[
+    {
+        "merged": "com.zelland.app-mergeDebugResources-38:/layout/activity_main.xml",
+        "source": "com.zelland.app-main-41:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.zelland.app-mergeDebugResources-38:/layout/fragment_terminal.xml",
+        "source": "com.zelland.app-main-41:/layout/fragment_terminal.xml"
+    },
+    {
+        "merged": "com.zelland.app-mergeDebugResources-38:/layout/activity_ssh_config.xml",
+        "source": "com.zelland.app-main-41:/layout/activity_ssh_config.xml"
+    },
+    {
+        "merged": "com.zelland.app-mergeDebugResources-38:/layout/item_session.xml",
+        "source": "com.zelland.app-main-41:/layout/item_session.xml"
+    }
+]

@@ -1,0 +1,30 @@
+[
+    {
+        "merged": "com.zelland.app-merged_res-39:/xml_backup_rules.xml.flat",
+        "source": "com.zelland.app-main-41:/xml/backup_rules.xml"
+    },
+    {
+        "merged": "com.zelland.app-merged_res-39:/xml_data_extraction_rules.xml.flat",
+        "source": "com.zelland.app-main-41:/xml/data_extraction_rules.xml"
+    },
+    {
+        "merged": "com.zelland.app-merged_res-39:/layout_activity_ssh_config.xml.flat",
+        "source": "com.zelland.app-main-41:/layout/activity_ssh_config.xml"
+    },
+    {
+        "merged": "com.zelland.app-merged_res-39:/layout_fragment_terminal.xml.flat",
+        "source": "com.zelland.app-main-41:/layout/fragment_terminal.xml"
+    },
+    {
+        "merged": "com.zelland.app-merged_res-39:/layout_item_session.xml.flat",
+        "source": "com.zelland.app-main-41:/layout/item_session.xml"
+    },
+    {
+        "merged": "com.zelland.app-merged_res-39:/xml_network_security_config.xml.flat",
+        "source": "com.zelland.app-main-41:/xml/network_security_config.xml"
+    },
+    {
+        "merged": "com.zelland.app-merged_res-39:/layout_activity_main.xml.flat",
+        "source": "com.zelland.app-main-41:/layout/activity_main.xml"
+    }
+]

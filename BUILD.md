@@ -28,6 +28,26 @@ Wait for Gradle sync to complete.
 
 ### 3. Build
 
+**Option A: Using Task (Recommended)**
+```bash
+# Install Task first (https://taskfile.dev)
+# macOS: brew install go-task
+# Linux: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+
+# Build debug APK
+task build
+
+# Build and run
+task run
+
+# Full development workflow (build + install + run + logs)
+task dev
+
+# See all available tasks
+task
+```
+
+**Option B: Using Gradle directly**
 ```bash
 # Via command line
 ./gradlew assembleDebug
@@ -38,11 +58,20 @@ Build → Make Project (Ctrl+F9)
 
 ### 4. Run
 
-**Option A: Android Studio**
+**Option A: Using Task**
+```bash
+# Build, install, and launch
+task run
+
+# Or with logs
+task dev
+```
+
+**Option B: Android Studio**
 1. Connect device or start emulator
 2. Run → Run 'app' (Shift+F10)
 
-**Option B: Command Line**
+**Option C: Gradle**
 ```bash
 # Install debug APK
 ./gradlew installDebug
@@ -50,6 +79,55 @@ Build → Make Project (Ctrl+F9)
 # Or build and install
 ./gradlew assembleDebug && adb install app/build/outputs/apk/debug/app-debug.apk
 ```
+
+## Task Automation
+
+Zelland includes a `Taskfile.yml` for streamlined development workflows.
+
+### Quick Reference
+
+```bash
+# Local development
+task build              # Build debug APK
+task install            # Install on device
+task run                # Build, install, and launch
+task dev                # Full workflow with logs
+
+# Remote development (push to emulator on another host)
+task push -- hostname   # Build and push to remote emulator
+task dev-remote -- host # Full remote workflow
+
+# Testing & quality
+task test               # Run unit tests
+task lint               # Run lint checks
+task check              # Run all checks
+
+# Device management
+task devices            # List connected devices
+task logs               # View app logs
+task logs -- hostname   # View logs from remote device
+
+# Utilities
+task clean              # Clean build
+task release            # Build release APK
+```
+
+### Remote Emulator Example
+
+Push and run on a remote emulator:
+
+```bash
+# Connect to remote emulator at myserver.example.com:5555
+task push -- myserver.example.com
+
+# View logs from remote device
+task logs -- myserver.example.com
+
+# Full workflow (clean + build + push + logs)
+task dev-remote -- myserver.example.com
+```
+
+**See [TASKFILE_USAGE.md](TASKFILE_USAGE.md) for complete documentation.**
 
 ## Testing
 

@@ -1,0 +1,299 @@
+version: '3'
+
+vars:
+  APP_PACKAGE: com.zelland
+  APP_ACTIVITY: com.zelland.MainActivity
+  APK_DEBUG: app/build/outputs/apk/debug/app-debug.apk
+  APK_RELEASE: app/build/outputs/apk/release/app-release.apk
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - ./gradlew clean
+      - echo "✓ Build artifacts cleaned"
+
+  build:
+    desc: Build debug APK
+    aliases: [b]
+    cmds:
+      - ./gradlew assembleDebug
+      - echo "✓ Debug APK built at {{.APK_DEBUG}}"
+
+  build-release:
+    desc: Build release APK
+    aliases: [br]
+    cmds:
+      - ./gradlew assembleRelease
+      - echo "✓ Release APK built at {{.APK_RELEASE}}"
+
+  install:
+    desc: Build and install debug APK on connected device
+    aliases: [i]
+    deps: [build]
+    cmds:
+      - adb install -r {{.APK_DEBUG}}
+      - echo "✓ App installed on local device"
+
+  install-release:
+    desc: Build and install release APK on connected device
+    deps: [build-release]
+    cmds:
+      - adb install -r {{.APK_RELEASE}}
+      - echo "✓ Release app installed on local device"
+
+  run:
+    desc: Build, install, and launch the app
+    aliases: [r]
+    deps: [install]
+    cmds:
+      - adb shell am start -n {{.APP_PACKAGE}}/{{.APP_ACTIVITY}}
+      - echo "✓ App launched"
+
+  push:
+    desc: Build and push APK to remote emulator (usage task push -- hostname)
+    aliases: [p]
+    deps: [build]
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default "localhost"}}'
+      ADB_HOST: '{{.HOSTNAME}}:5555'
+    cmds:
+      - echo "Connecting to remote emulator at {{.ADB_HOST}}..."
+      - adb connect {{.ADB_HOST}}
+      - sleep 2
+      - echo "Installing APK on remote emulator..."
+      - adb -s {{.ADB_HOST}} install -r {{.APK_DEBUG}}
+      - echo "Launching app..."
+      - adb -s {{.ADB_HOST}} shell am start -n {{.APP_PACKAGE}}/{{.APP_ACTIVITY}}
+      - echo "✓ App pushed to {{.ADB_HOST}} and launched"
+      - echo ""
+      # - echo "To view logs: task logs -- {{.HOSTNAME}}"
+      # - echo "To disconnect: adb disconnect {{.ADB_HOST}}"
+
+  push-release:
+    desc: Build and push release APK to remote emulator
+    deps: [build-release]
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default "localhost"}}'
+      ADB_HOST: '{{.HOSTNAME}}:5555'
+    cmds:
+      - echo "Connecting to remote emulator at {{.ADB_HOST}}..."
+      - adb connect {{.ADB_HOST}}
+      - sleep 2
+      - echo "Installing release APK on remote emulator..."
+      - adb -s {{.ADB_HOST}} install -r {{.APK_RELEASE}}
+      - echo "Launching app..."
+      - adb -s {{.ADB_HOST}} shell am start -n {{.APP_PACKAGE}}/{{.APP_ACTIVITY}}
+      - echo "✓ Release app pushed to {{.ADB_HOST}} and launched"
+
+  logs:
+    desc: View app logs from device (usage task logs [-- hostname])
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default ""}}'
+      ADB_CMD: '{{if .HOSTNAME}}adb -s {{.HOSTNAME}}:5555{{else}}adb{{end}}'
+    cmds:
+      - '{{.ADB_CMD}} logcat -s ZellijManager:* TerminalViewModel:* TerminalFragment:* MainActivity:* SSHConnectionManager:*'
+
+  logs-all:
+    desc: View all logs from device
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default ""}}'
+      ADB_CMD: '{{if .HOSTNAME}}adb -s {{.HOSTNAME}}:5555{{else}}adb{{end}}'
+    cmds:
+      - '{{.ADB_CMD}} logcat'
+
+  logs-clear:
+    desc: Clear device logs
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default ""}}'
+      ADB_CMD: '{{if .HOSTNAME}}adb -s {{.HOSTNAME}}:5555{{else}}adb{{end}}'
+    cmds:
+      - '{{.ADB_CMD}} logcat -c'
+      - echo "✓ Logs cleared"
+
+  uninstall:
+    desc: Uninstall app from connected device
+    cmds:
+      - adb uninstall {{.APP_PACKAGE}}
+      - echo "✓ App uninstalled"
+
+  uninstall-remote:
+    desc: Uninstall app from remote emulator
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default "localhost"}}'
+      ADB_HOST: '{{.HOSTNAME}}:5555'
+    cmds:
+      - adb -s {{.ADB_HOST}} uninstall {{.APP_PACKAGE}}
+      - echo "✓ App uninstalled from {{.ADB_HOST}}"
+
+  test:
+    desc: Run unit tests
+    aliases: [t]
+    cmds:
+      - ./gradlew test
+      - echo "✓ Unit tests completed"
+
+  test-report:
+    desc: Run tests and open HTML report
+    cmds:
+      - ./gradlew test
+      - open app/build/reports/tests/testDebugUnitTest/index.html || xdg-open app/build/reports/tests/testDebugUnitTest/index.html
+      - echo "✓ Test report opened"
+
+  lint:
+    desc: Run lint checks
+    aliases: [l]
+    cmds:
+      - ./gradlew lint
+      - echo "✓ Lint checks completed"
+
+  lint-report:
+    desc: Run lint and open HTML report
+    cmds:
+      - ./gradlew lint
+      - open app/build/reports/lint-results-debug.html || xdg-open app/build/reports/lint-results-debug.html
+      - echo "✓ Lint report opened"
+
+  format:
+    desc: Format Kotlin code (requires ktlint)
+    cmds:
+      - ./gradlew ktlintFormat || echo "ktlint not configured - skipping format"
+
+  check:
+    desc: Run all checks (test + lint)
+    cmds:
+      - task: test
+      - task: lint
+      - echo "✓ All checks passed"
+
+  devices:
+    desc: List connected devices and emulators
+    aliases: [d]
+    cmds:
+      - echo "Connected devices:"
+      - adb devices -l
+
+  shell:
+    desc: Open ADB shell on device
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default ""}}'
+      ADB_CMD: '{{if .HOSTNAME}}adb -s {{.HOSTNAME}}:5555{{else}}adb{{end}}'
+    cmds:
+      - '{{.ADB_CMD}} shell'
+
+  connect:
+    desc: Connect to remote ADB server (usage task connect -- hostname)
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default "localhost"}}'
+      ADB_HOST: '{{.HOSTNAME}}:5555'
+    cmds:
+      - echo "Connecting to {{.ADB_HOST}}..."
+      - adb connect {{.ADB_HOST}}
+      - adb devices
+
+  disconnect:
+    desc: Disconnect from remote ADB server (usage task disconnect -- hostname)
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default "localhost"}}'
+      ADB_HOST: '{{.HOSTNAME}}:5555'
+    cmds:
+      - echo "Disconnecting from {{.ADB_HOST}}..."
+      - adb disconnect {{.ADB_HOST}}
+
+  disconnect-all:
+    desc: Disconnect from all remote ADB servers
+    cmds:
+      - adb disconnect
+      - echo "✓ Disconnected from all remote devices"
+
+  screenshot:
+    desc: Take screenshot and pull to local machine
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default ""}}'
+      ADB_CMD: '{{if .HOSTNAME}}adb -s {{.HOSTNAME}}:5555{{else}}adb{{end}}'
+      TIMESTAMP:
+        sh: date +%Y%m%d_%H%M%S
+    cmds:
+      - '{{.ADB_CMD}} shell screencap -p /sdcard/screenshot.png'
+      - '{{.ADB_CMD}} pull /sdcard/screenshot.png screenshot_{{.TIMESTAMP}}.png'
+      - '{{.ADB_CMD}} shell rm /sdcard/screenshot.png'
+      - echo "✓ Screenshot saved as screenshot_{{.TIMESTAMP}}.png"
+
+  logcat-save:
+    desc: Save logcat to file
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default ""}}'
+      ADB_CMD: '{{if .HOSTNAME}}adb -s {{.HOSTNAME}}:5555{{else}}adb{{end}}'
+      TIMESTAMP:
+        sh: date +%Y%m%d_%H%M%S
+    cmds:
+      - '{{.ADB_CMD}} logcat -d > logcat_{{.TIMESTAMP}}.txt'
+      - echo "✓ Logs saved to logcat_{{.TIMESTAMP}}.txt"
+
+  dev:
+    desc: Development workflow - build, install, run, and show logs
+    cmds:
+      - task: clean
+      - task: build
+      - task: install
+      - task: run
+      - echo ""
+      - echo "Showing logs (Ctrl+C to stop):"
+      - task: logs
+
+  dev-remote:
+    desc: Remote development workflow (uuuuuu task dev-remote -- hostname)
+    vars:
+      HOSTNAME: '{{.CLI_ARGS | default "localhost"}}'
+    cmds:
+      - task: clean
+      - task: push -- {{.HOSTNAME}}
+      - echo ""
+      - echo "Showing logs (Ctrl+C to stop):"
+      - task: logs -- {{.HOSTNAME}}
+
+  release:
+    desc: Build release APK (ready for distribution)
+    cmds:
+      - task: clean
+      - task: lint
+      - task: test
+      - task: build-release
+      - echo ""
+      - echo "✓ Release build completed"
+
+  info:
+    desc: Show build information
+    cmds:
+      - echo "Zelland Build Information"
+      - echo "========================="
+      # - echo "Package: {{.APP_PACKAGE}}"
+      # - echo "Activity {{.APP_ACTIVITY}}"
+      # - echo ""
+      # - echo "Debug APK {{.APK_DEBUG}}"
+      - echo "Release APK {{.APK_RELEASE}}"
+      - echo ""
+      - echo "Gradle version:"
+      - ./gradlew --version | head -n 3
+
+  setup:
+    desc: Setup development environment
+    cmds:
+      - echo "Setting up Zelland development environment..."
+      - echo ""
+      - echo "Checking dependencies..."
+      - command -v java >/dev/null 2>&1 && echo "✓ Java installed" || echo "✗ Java not found"
+      - command -v adb >/dev/null 2>&1 && echo "✓ ADB installed" || echo "✗ ADB not found"
+      - command -v task >/dev/null 2>&1 && echo "✓ Task installed" || echo "✗ Task not found"
+      - echo ""
+      - echo "Creating gradle wrapper..."
+      - gradle wrapper || echo "Using existing wrapper"
+      - echo ""
+      - echo "✓ Setup complete"
+      - echo ""
+      - echo "Run 'task' to see available commands"
