@@ -1,14 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background">
-
-    <!-- WebView for Zellij web interface -->
-    <WebView
-        android:id="@+id/webView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+    android:background="@color/terminal_background">
 
     <!-- Loading progress bar -->
     <ProgressBar
@@ -16,10 +10,137 @@
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
         android:layout_height="4dp"
-        android:layout_gravity="top"
+        android:layout_alignParentTop="true"
         android:indeterminate="false"
         android:max="100"
         android:progress="0"
-        android:progressTint="@color/primary" />
+        android:progressTint="@color/zelland_primary"
+        android:elevation="2dp" />
 
-</FrameLayout>
+    <!-- Custom WebView for terminal input -->
+    <com.zelland.ui.TerminalWebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_above="@id/quickKeysContainer" />
+
+    <!-- Container for Quick Keys and D-Pad -->
+    <LinearLayout
+        android:id="@+id/quickKeysContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical">
+
+        <!-- D-Pad Overlay (shown on long-press of Down) -->
+        <LinearLayout
+            android:id="@+id/dpadOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/gray_dark"
+            android:visibility="gone"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:gravity="center">
+            
+            <Button
+                android:id="@+id/btnLeft"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                style="@style/Widget.Zelland.Button.Small"
+                android:text="←" />
+
+            <Button
+                android:id="@+id/btnUp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                style="@style/Widget.Zelland.Button.Small"
+                android:text="↑" />
+
+            <Button
+                android:id="@+id/btnRight"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                style="@style/Widget.Zelland.Button.Small"
+                android:text="→" />
+        </LinearLayout>
+
+        <!-- Quick Keys Bar -->
+        <HorizontalScrollView
+            android:id="@+id/quickKeysBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/gray_dark"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="4dp">
+
+                <Button
+                    android:id="@+id/btnEsc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Zelland.Button.Small"
+                    android:text="ESC" />
+
+                <Button
+                    android:id="@+id/btnTab"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Zelland.Button.Small"
+                    android:text="TAB" />
+
+                <Button
+                    android:id="@+id/btnCtrl"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Zelland.Button.Small"
+                    android:text="C"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnAlt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Zelland.Button.Small"
+                    android:text="A"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnMeta"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Zelland.Button.Small"
+                    android:text="M"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnDown"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Zelland.Button.Small"
+                    android:text="↓" />
+
+                <Button
+                    android:id="@+id/btnPgDn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Zelland.Button.Small"
+                    android:text="PgDn" />
+                
+                <Button
+                    android:id="@+id/btnEnter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Zelland.Button.Small"
+                    android:text="↵" />
+
+            </LinearLayout>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+</RelativeLayout>

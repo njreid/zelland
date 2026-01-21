@@ -4,7 +4,7 @@ import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
 
 /**
- * Configuration for SSH connection
+ * Configuration for a connection
  */
 @Parcelize
 data class SSHConfig(
@@ -17,7 +17,8 @@ data class SSHConfig(
     val password: String? = null,
     val privateKeyPath: String? = null,
     val privateKeyPassphrase: String? = null,
-    val savePassword: Boolean = false
+    val savePassword: Boolean = false,
+    val zellijSessionName: String? = null
 ) : Parcelable {
 
     enum class AuthMethod {
@@ -31,24 +32,6 @@ data class SSHConfig(
     fun validate(): ValidationResult {
         if (host.isBlank()) {
             return ValidationResult.Error("Host cannot be empty")
-        }
-        if (username.isBlank()) {
-            return ValidationResult.Error("Username cannot be empty")
-        }
-        if (port !in 1..65535) {
-            return ValidationResult.Error("Invalid port number")
-        }
-        when (authMethod) {
-            AuthMethod.PASSWORD -> {
-                if (password.isNullOrBlank()) {
-                    return ValidationResult.Error("Password cannot be empty")
-                }
-            }
-            AuthMethod.PRIVATE_KEY -> {
-                if (privateKeyPath.isNullOrBlank()) {
-                    return ValidationResult.Error("Private key path cannot be empty")
-                }
-            }
         }
         return ValidationResult.Success
     }

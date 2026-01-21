@@ -12,10 +12,13 @@ data class TerminalSession(
 
     // Persistent Zellij session name
     // This is the key to reconnecting to the same session
-    val zellijSessionName: String = "session-${id.take(8)}",
+    val zellijSessionName: String,
 
     val isConnected: Boolean = false,
     val localUrl: String? = null,
+    
+    // Store the last known auth token to try reconnecting directly
+    val lastAuthToken: String? = null,
 
     // Track last connection time
     val lastConnected: Long = System.currentTimeMillis()
@@ -24,7 +27,7 @@ data class TerminalSession(
      * Get display name for this session
      */
     fun getDisplayName(): String {
-        return "$title (${sshConfig.username}@${sshConfig.host})"
+        return "$title (${sshConfig.host})"
     }
 
     /**

@@ -1,334 +1,371 @@
-# Implementation Plan - Zelland (Original xterm.js Version)
+# Implementation Plan - Zelland
 
 ## Overview
-This document outlines the original implementation plan for building Zelland as a standalone terminal app with xterm.js and custom keyboard. **Note**: This plan has been superseded by CHANGES_ZELLIJ.md which uses Zellij web integration instead.
 
-**This document is kept for reference only.**
+This document outlines the step-by-step implementation plan for building **Zelland** (Zellij + Android), a mobile terminal client with Zellij web integration, organized into clear milestones with measurable deliverables.
+
+**Architecture**: Direct HTTPS Connection to Zellij Web Server
+
+**What is Zelland?** A native Android app that connects to remote Zellij terminal multiplexer sessions via HTTPS, providing gesture-based navigation and multi-host session management.
 
 ---
 
-## Milestone 1: Project Setup & Foundation
-**Goal**: Establish the Android project structure and basic WebView integration.
+## Milestone 4: WebView Integration with Zellij
 
-### 1.1 Create Android Project
-- [ ] Initialize new Android project with Kotlin support
-- [ ] Set minSdk = 24, targetSdk = 34
-- [ ] Configure Gradle build scripts (Kotlin DSL)
-- [ ] Add required dependencies:
-  - AndroidX Core KTX
-  - AndroidX AppCompat
-  - AndroidX Fragment KTX
-  - Material Components
-  - AndroidX ViewPager2
-  - AndroidX Lifecycle (ViewModel, LiveData)
+**Goal**: Load Zellij web interface in Android WebView and handle sessions.
 
-### 1.2 Setup xterm.js Assets
-- [ ] Create `assets/terminal/` directory
-- [ ] Download xterm.js v5.x and addons:
-  - xterm.js core library
-  - xterm.css
-  - xterm-addon-fit.js
-  - xterm-addon-web-links.js (optional)
-- [ ] Create `index.html` with xterm.js integration
-- [ ] Create `bridge.js` for Android ↔ JavaScript communication
-- [ ] Test asset loading in WebView
+### 4.1 Basic WebView Setup
 
-### 1.3 Basic WebView Terminal
-- [ ] Create `TerminalFragment` with WebView
-- [ ] Configure WebView settings:
+- [x] Create `TerminalFragment` with WebView
+- [x] Configure WebView settings:
   - Enable JavaScript
   - Enable DOM storage
+  - Allow mixed content (for localhost)
   - Disable zoom controls
-  - Set text zoom to 100%
-- [ ] Load local HTML from assets
-- [ ] Verify xterm.js renders in WebView
-- [ ] Test basic terminal input/output
+- [x] Set custom WebViewClient:
+  - Handle page load events
+  - Handle errors (connection refused, timeout)
+  - Block external navigation
 
-**Deliverable**: Single terminal displaying in WebView with xterm.js rendering text.
+### 4.2 Load Zellij Web
 
-**Testing**: Can type in terminal, see output, xterm.js loads correctly.
+- [x] Add method `loadZellijWeb(url: String)` to Fragment
+- [x] Build URL: `https://{host}:{port}/{sessionName}`
+- [x] Load URL in WebView
+- [x] Show loading indicator
+- [x] Handle load success/failure
 
----
+### 4.3 Session URL Management
 
-## Milestone 2: JavaScript Bridge & Input System
-**Goal**: Establish bidirectional communication between Android and xterm.js.
+- [x] Update `TerminalSession` model:
+  - Add `zellijSessionName` (persistent identifier)
+  - Add `localUrl` (computed from port + session name)
+  - Add `sshConfig` (now just host/name config)
+  - Add `isConnected` flag
+- [x] Generate consistent session names (e.g., "project-alpha")
+- [x] Use same session name for reconnections (enables Zellij persistence)
 
-### 2.1 JavaScript Interface
-- [ ] Create `TerminalJavascriptInterface` class
-- [ ] Add `@JavascriptInterface` methods:
-  - `onTerminalReady()` - called when xterm.js initializes
-  - `onTerminalData(data: String)` - called when user types in terminal
-  - `onTerminalTitle(title: String)` - for session title updates
-- [ ] Register interface with WebView
-- [ ] Add JavaScript bridge code in `bridge.js`:
-  - `term.onData()` handler
-  - `Android.onTerminalData()` calls
-  - `window.sendToTerminal()` function
+### 4.4 ViewModel Integration
 
-### 2.2 Input Handling from Android
-- [ ] Create `KeySequenceHelper` utility class:
-  - Map keys to control sequences
-  - Handle modifier combinations
-  - Escape strings for JavaScript
-- [ ] Implement `sendInput(key: String, modifiers: ModifierState)` in Fragment
-- [ ] Use `evaluateJavascript()` to send to xterm.js
-- [ ] Test control sequences (Ctrl+C, Ctrl+D, etc.)
+- [x] Create `TerminalViewModel`:
+  - `sessions: LiveData<List<TerminalSession>>`
+  - `activeSessionIndex: LiveData<Int>`
+  - `connectSession(sessionId: String)`
+  - `disconnectSession(sessionId: String)`
+- [x] Implement `connectSession()`:
+  1. Check direct HTTPS connection
+  2. Update session state
+- [x] Implement `disconnectSession()`:
+  - Update session state to disconnected
 
-### 2.3 Output Handling to Android
-- [ ] Create callback mechanism in Fragment for terminal data
-- [ ] Log terminal output for debugging
-- [ ] Prepare for WebSocket forwarding (hook, don't implement)
+### 4.5 Connection Flow Testing
 
-**Deliverable**: Can send keys from Android code to xterm.js and receive terminal events.
+- [x] Create session with host config
+- [x] Connect to session
+- [x] Verify Zellij web loads in WebView
+- [x] Type in terminal, verify it works
+- [x] Disconnect and reconnect, verify session persists
 
-**Testing**: Programmatically send "echo hello\n", see output in terminal. Send Ctrl+C, verify interrupt signal.
+**Deliverable**: Full end-to-end flow: HTTPS → WebView with working terminal.
 
----
-
-## Milestone 3: Custom Keyboard - ModBar
-**Goal**: Build the persistent modifier key bar at the bottom of the screen.
-
-### 3.1 ModBar Layout
-- [ ] Create `view_mod_bar.xml`:
-  - Horizontal LinearLayout
-  - Buttons: Ctrl, Alt, Shift, Esc, Tab, ↑, ↓, ←, →
-  - Fixed height: 48dp
-  - Background: Material surface color
-- [ ] Create `ModBarView` custom view class
-- [ ] Define button styles and state colors
-- [ ] Add ripple effects and haptic feedback
-
-### 3.2 ModBar State Management
-- [ ] Create `ModifierState` data class (ctrl, alt, shift flags)
-- [ ] Implement toggle logic for Ctrl, Alt, Shift
-- [ ] Implement direct action for Esc, Tab, arrows
-- [ ] Add visual feedback for active modifiers:
-  - Change background color
-  - Update text color
-  - Add border/stroke
-- [ ] Expose state via LiveData or callback
-
-### 3.3 ModBar Integration
-- [ ] Add ModBar to `activity_main.xml`
-- [ ] Connect ModBar to TerminalViewModel
-- [ ] Test modifier toggling and visual states
-- [ ] Test Esc, Tab, arrow key functionality
-
-**Deliverable**: Persistent ModBar that can toggle modifiers and send special keys.
-
-**Testing**: Tap Ctrl, see visual change. Tap Esc, verify escape sequence sent to terminal. Tap arrows, see cursor movement.
+**Testing**: Create session, connect, type commands in terminal, see output. Disconnect, reconnect, verify session state preserved.
 
 ---
 
-## Milestone 4: Custom Keyboard - AlphaGrid
-**Goal**: Build the contextual alphanumeric keyboard that appears with modifiers.
+## Milestone 5: Gesture Controls for Zellij Navigation
 
-### 4.1 AlphaGrid Layout
-- [ ] Create `view_alpha_grid.xml`:
-  - GridLayout or FlexboxLayout
-  - 3 rows × 10 columns (30 keys)
-  - Keys: A-Z, 0-9, common symbols (-, _, /, ., etc.)
-  - Height: ~160dp
-  - Initially GONE
-- [ ] Create `AlphaGridView` custom view class
-- [ ] Generate buttons programmatically or inflate from XML
-- [ ] Style keys consistently with ModBar
+**Goal**: Map Android gestures to Zellij keyboard shortcuts.
 
-### 4.2 AlphaGrid Animation
-- [ ] Implement slide-up animation (ObjectAnimator)
-- [ ] Implement slide-down animation
-- [ ] Add animation duration: 250ms
-- [ ] Use AccelerateDecelerateInterpolator
-- [ ] Trigger animations based on modifier state
+### 5.1 Custom TerminalWebView
 
-### 4.3 AlphaGrid Input Logic
-- [ ] Add click listeners to all keys
-- [ ] Combine key + active modifier state
-- [ ] Generate appropriate control sequence
-- [ ] Send to active terminal via TerminalViewModel
-- [ ] Auto-dismiss after key press (optional setting)
+- [ ] Create `TerminalWebView` extending WebView
+- [ ] Add GestureDetector for swipe detection
+- [ ] Configure swipe parameters:
+  - MIN_SWIPE_DISTANCE (100px)
+  - MIN_SWIPE_VELOCITY (100px/sec)
+  - EDGE_SWIPE_MARGIN (50px)
+- [ ] Detect horizontal swipes
+- [ ] Distinguish edge swipes from center swipes
 
-### 4.4 CustomKeyboardView Container
-- [ ] Create `view_custom_keyboard.xml`:
-  - Vertical LinearLayout
-  - AlphaGrid on top
-  - ModBar on bottom
-- [ ] Create `CustomKeyboardView` wrapper class
-- [ ] Coordinate between AlphaGrid and ModBar
-- [ ] Manage keyboard visibility state
+### 5.2 Swipe-to-Tab-Switch
 
-**Deliverable**: Full custom keyboard with modifier bar and contextual alphanumeric grid.
+- [ ] Implement `onFling()` handler
+- [ ] Detect swipe direction (left/right)
+- [ ] Ignore edge swipes (for ViewPager2)
+- [ ] Send Alt+Arrow to Zellij for center swipes
+- [ ] Add callback: `setOnZellijTabSwipeListener()`
 
-**Testing**: Tap Ctrl, see AlphaGrid slide up. Tap C, verify Ctrl+C sent to terminal. Tap Ctrl again, see AlphaGrid slide down.
+### 5.3 JavaScript Key Injection
+
+- [x] Create method `sendZellijTabSwitch(direction: SwipeDirection)`
+- [x] Generate JavaScript to simulate KeyboardEvent:
+  - Set `altKey: true`
+  - Set `key: "ArrowLeft"` or `"ArrowRight"`
+  - Dispatch keydown and keyup events
+- [x] Execute JavaScript via `evaluateJavascript()`
+- [x] Test tab switching works in Zellij
+
+### 5.4 ViewPager2 Coordination
+
+- [ ] Configure ViewPager2 to allow edge swipes only
+- [ ] Reduce ViewPager2 sensitivity
+- [ ] Add touch interceptor to prioritize terminal swipes
+- [ ] Test both navigation layers work correctly
+
+### 5.5 Additional Gestures (Optional)
+
+- [ ] Long press → Context menu (new tab, split pane, etc.)
+- [ ] Three-finger swipe → Special functions
+- [ ] Volume keys → Page up/down
+
+**Deliverable**: Swipe left/right on terminal switches Zellij tabs. Edge swipes switch Android sessions.
+
+**Testing**: Create Zellij session with multiple tabs. Swipe center-left to go to previous tab. Swipe center-right to go to next tab. Swipe from left edge to switch Android session.
 
 ---
 
-## Milestone 5: Multi-Session Support with ViewPager2
-**Goal**: Enable multiple terminal sessions with swipe navigation.
+## Milestone 6: Multi-Session Support
 
-### 5.1 TerminalViewModel
-- [ ] Create `TerminalViewModel` class
-- [ ] Add `sessions: MutableLiveData<List<TerminalSession>>`
-- [ ] Add `activeSessionIndex: MutableLiveData<Int>`
-- [ ] Add `modifierState: MutableLiveData<ModifierState>`
-- [ ] Implement `addSession()`, `removeSession()`, `setActiveSession()`
+**Goal**: Support multiple hosts with independent Zellij sessions.
 
-### 5.2 TerminalSession Model
-- [ ] Create `TerminalSession` data class:
-  - `id: String` (UUID)
-  - `title: String`
-  - `webSocketUrl: String?`
-  - `isConnected: Boolean`
-  - `createdAt: Long`
+### 6.1 Session List Management
 
-### 5.3 ViewPager2 Setup
-- [ ] Create `TerminalAdapter` extending `FragmentStateAdapter`
+- [ ] Expand TerminalViewModel:
+  - `addSession(config: SSHConfig)`
+  - `removeSession(sessionId: String)`
+  - `getSession(sessionId: String): TerminalSession?`
+
+### 6.2 ViewPager2 Setup
+
+- [ ] Create `TerminalAdapter` extending FragmentStateAdapter
 - [ ] Override `createFragment()` to return TerminalFragment
-- [ ] Override `getItemCount()` based on sessions list
-- [ ] Add ViewPager2 to `activity_main.xml`
-- [ ] Connect adapter to ViewModel sessions
+- [ ] Override `getItemCount()` from sessions list
+- [ ] Pass session ID to each fragment via Bundle
+- [ ] Add ViewPager2 to MainActivity layout
 
-### 5.4 Session Lifecycle
-- [ ] Ensure fragments are retained (not destroyed) on swipe
+### 6.3 Session Switching
+
+- [ ] Add ViewPager2.OnPageChangeCallback
 - [ ] Update activeSessionIndex on page change
-- [ ] Route keyboard input to active session only
+- [ ] Ensure only active session receives input
 - [ ] Test with 3+ sessions
 
-### 5.5 Session Management UI
-- [ ] Add "+" FAB to create new session
-- [ ] Add menu option to close current session
-- [ ] Add TabLayout or page indicator for session list
-- [ ] Update indicator on swipe
+### 6.4 Add/Remove Sessions UI
 
-**Deliverable**: Multiple terminal sessions with swipe navigation and session management.
+- [ ] Add FAB (Floating Action Button) for new session
+- [ ] Show ConfigDialog on FAB click
+- [ ] Connect new session and add to ViewPager
+- [ ] Add "Close Session" menu option
+- [ ] Remove session from ViewPager on close
 
-**Testing**: Create 3 sessions, swipe between them, verify each maintains separate terminal state. Type in session 1, swipe to session 2, swipe back, verify session 1 history preserved.
+### 6.5 Session Indicators
+
+- [ ] Add TabLayout or custom indicator above keyboard
+- [ ] Show session names/hosts
+- [ ] Highlight active session
+- [ ] Update indicators on swipe
+
+**Deliverable**: Multiple connections with separate Zellij sessions, swipeable navigation.
+
+**Testing**: Create 3 sessions to different hosts. Swipe between them. Verify each has independent terminal state. Close one session, verify others unaffected.
 
 ---
 
-## Milestone 6: Polish & Optimization
+## Milestone 7: Session Persistence & Lifecycle
+
+**Goal**: Persist sessions across app restarts and handle Android lifecycle properly.
+
+### 7.1 Secure Storage
+
+- [ ] Store session list (IDs, names, configs) in SharedPreferences
+- [ ] Add methods:
+  - `saveConfig(config: SSHConfig)`
+  - `loadConfigs(): List<SSHConfig>`
+  - `deleteConfig(id: String)`
+
+### 7.2 Session Persistence
+
+- [ ] Save session list on `onPause()`
+- [ ] Load session list on app startup
+- [ ] Restore session metadata (not connections)
+- [ ] Show "Reconnect" UI for saved sessions
+- [ ] Handle corrupted storage gracefully
+
+### 7.3 Lifecycle Management
+
+- [ ] Implement `onPause()`:
+  - Disconnect all sessions
+  - Save session state
+- [ ] Implement `onResume()`:
+  - Restore session list
+  - Optionally auto-reconnect to last active session
+- [ ] Implement `onDestroy()`:
+  - Clean up connections
+
+### 7.4 Configuration Changes
+
+- [ ] Handle device rotation
+- [ ] Retain ViewModel across config changes
+- [ ] Verify WebView state preserved
+- [ ] Test rotation with active connections
+
+**Deliverable**: Sessions persist across app restarts.
+
+**Testing**: Create session, run long process (e.g., `sleep 300`). Close app. Reopen app, reconnect to session, verify process still running.
+
+---
+
+## Milestone 8: Polish & Optimization
+
 **Goal**: Refine UI/UX, performance, and edge cases.
 
-### 6.1 Theming & Styling
-- [ ] Define color scheme in `colors.xml`:
-  - Terminal background (dark)
-  - Terminal foreground (light)
-  - Keyboard background
-  - Active modifier color
-  - Ripple/press states
-- [ ] Create dark theme (default)
-- [ ] Optional: Create light theme
-- [ ] Apply Material Design 3 guidelines
-- [ ] Test on different screen sizes
+### 8.1 Theming & Styling
 
-### 6.2 Terminal Configuration
-- [ ] Make font size configurable (Settings screen or menu)
-- [ ] Make cursor style configurable (block/underline/bar)
-- [ ] Make color scheme configurable (built-in themes)
-- [ ] Save preferences to SharedPreferences
-- [ ] Apply preferences on terminal initialization
+- [ ] Define color scheme (dark theme default)
+- [ ] Style WebView background to match terminal theme
+- [ ] Style session indicators
+- [ ] Add Material Design 3 components
+- [ ] Test on different screen sizes (phone, tablet)
 
-### 6.3 Session Persistence
-- [ ] Save session list to SharedPreferences on pause
-- [ ] Restore session list on resume
-- [ ] Serialize TerminalSession objects to JSON
-- [ ] Handle session restoration gracefully (no WebSocket reconnect yet)
+### 8.2 Error Handling & UX
 
-### 6.4 Performance Optimization
+- [ ] Show connection progress dialog
+- [ ] Display friendly error messages:
+  - "Connection failed"
+  - "Network unavailable"
+- [ ] Add retry mechanism for transient failures
+
+### 8.3 Settings Screen
+
+- [ ] Create SettingsActivity with PreferenceScreen
+- [ ] Add preferences:
+  - Auto-reconnect on startup (bool)
+  - Gesture sensitivity (slider)
+  - Edge swipe margin (int)
+  - Zellij web port (int)
+- [ ] Apply settings in ViewModel
+
+### 8.4 Performance Optimization
+
 - [ ] Profile with Android Profiler
 - [ ] Ensure 60 FPS swipe animation
-- [ ] Minimize JavaScript bridge overhead
-- [ ] Test memory usage with 5+ sessions
-- [ ] Optimize WebView memory (consider process isolation)
+- [ ] Minimize main thread blocking
+- [ ] Test with 5+ simultaneous sessions
+- [ ] Monitor memory usage (WebView can be heavy)
 
-### 6.5 Edge Case Handling
-- [ ] Handle device rotation gracefully
-- [ ] Prevent system keyboard from appearing
-- [ ] Handle back button (close session? exit app?)
-- [ ] Handle empty session list (show welcome screen)
-- [ ] Handle WebView load errors
-- [ ] Add proper error logging
+### 8.5 Logging & Debugging
 
-**Deliverable**: Polished app with theming, persistence, and stable performance.
+- [ ] Add Timber for structured logging
+- [ ] Log connection events
+- [ ] Add debug mode in settings (verbose logs)
 
-**Testing**: Rotate device, verify state preserved. Open 5 sessions, verify smooth performance. Close app, reopen, verify sessions restored.
+**Deliverable**: Polished app with good UX, error handling, and performance.
+
+**Testing**: Test all error scenarios. Rotate device, verify stability. Open 5 sessions, check memory usage and smoothness.
 
 ---
 
-## Milestone 7: Advanced Features (Optional)
-**Goal**: Add enhancements for power users.
+## Milestone 9: Advanced Features (Optional)
 
-### 7.1 External Keyboard Support
+**Goal**: Add power-user features and enhancements.
+
+### 9.1 Zellij Layout Management
+
+- [ ] Send Zellij commands via JavaScript:
+  - New tab (Ctrl+t)
+  - Split pane (Ctrl+p, d)
+  - Close pane (Ctrl+p, x)
+  - Rename tab (Ctrl+r)
+- [ ] Add toolbar with quick actions
+- [ ] Support Zellij layouts (load/save)
+
+### 9.2 Session Templates
+
+- [ ] Save configs as templates
+- [ ] Quick connect to favorite hosts
+- [ ] Group sessions by project/environment
+- [ ] Import/export session configs
+
+### 9.3 Network Monitoring
+
+- [ ] Detect network changes (WiFi ↔ mobile)
+- [ ] Auto-reconnect on network restore
+- [ ] Show connection quality indicator
+- [ ] Warn before using mobile data
+
+### 9.4 External Keyboard Support
+
 - [ ] Detect hardware keyboard
-- [ ] Intercept key events in Fragment
-- [ ] Map to terminal sequences
+- [ ] Pass through keyboard events to WebView
+- [ ] Support common terminal shortcuts
 - [ ] Test with Bluetooth keyboard
 
-### 7.2 Gesture Shortcuts
-- [ ] Volume Up/Down for special functions
-- [ ] Long-press for context menu
-- [ ] Two-finger swipe for quick session switch
-
-### 7.3 Terminal Bells & Notifications
-- [ ] Handle xterm.js bell event
-- [ ] Show notification when app in background
-- [ ] Add haptic feedback option
-
-### 7.4 Copy/Paste Support
-- [ ] Implement text selection in xterm.js
-- [ ] Add copy button to toolbar
-- [ ] Integrate with Android clipboard
-
-### 7.5 Settings Screen
-- [ ] Create SettingsActivity
-- [ ] Add PreferenceScreen:
-  - Font size
-  - Theme
-  - Cursor style
-  - Haptic feedback
-  - Bell notifications
-  - Default WebSocket URL
-
-**Deliverable**: Enhanced app with advanced features for improved UX.
+**Deliverable**: Enhanced app with advanced features for power users.
 
 ---
 
-## Milestone 8: Testing & Release Preparation
+## Milestone 10: Testing & Release Preparation
+
 **Goal**: Ensure app stability and prepare for distribution.
 
-### 8.1 Testing
-- [ ] Unit tests for ViewModel logic
-- [ ] Unit tests for KeySequenceHelper
-- [ ] UI tests for keyboard input
-- [ ] UI tests for session management
-- [ ] Manual testing on multiple devices:
-  - Phone (small screen)
-  - Tablet (large screen)
-  - Different Android versions (7.0, 10, 12, 14)
+### 10.1 Unit Testing
 
-### 8.2 Documentation
-- [ ] Update README.md with:
+- [ ] Test `TerminalViewModel` session management
+- [ ] Test session persistence logic
+- [ ] Target 80%+ coverage for business logic
+
+### 10.2 Integration Testing
+
+- [ ] Test connection flow (requires test server)
+- [ ] Test WebView loading Zellij web
+- [ ] Test gesture detection
+- [ ] Test multi-session management
+
+### 10.3 UI Testing (Espresso)
+
+- [ ] Test session creation flow
+- [ ] Test connection dialog
+- [ ] Test ViewPager2 swiping
+- [ ] Test session disconnect
+- [ ] Test settings screen
+
+### 10.4 Manual Testing
+
+- [ ] Test on multiple devices:
+  - Phone (Android 7.0, 10, 12, 14)
+  - Tablet
+  - Foldable (if available)
+- [ ] Test different network conditions
+- [ ] Test with different Zellij versions
+
+### 10.5 Documentation
+
+- [ ] Update README.md:
   - App description
   - Features list
   - Screenshots
   - Build instructions
   - Usage guide
-- [ ] Add code comments for complex logic
-- [ ] Document JavaScript bridge protocol
+- [ ] Document server requirements
+- [ ] Document Zellij installation on server
+- [ ] Add troubleshooting guide
 
-### 8.3 Release Build
+### 10.6 Release Build
+
 - [ ] Configure ProGuard/R8 rules
-- [ ] Test release build
+- [ ] Test release build thoroughly
 - [ ] Set version code and name
 - [ ] Generate signed APK/AAB
-- [ ] Test on clean device (no debug tools)
+- [ ] Test on clean device
 
-### 8.4 Optional: Play Store Preparation
-- [ ] Create app icon and assets
+### 10.7 Play Store Preparation (Optional)
+
+- [ ] Create app icon and launcher assets
 - [ ] Write store listing description
-- [ ] Create screenshots and promo graphics
+- [ ] Create screenshots (phone + tablet)
+- [ ] Create feature graphic
 - [ ] Set up Play Console account
-- [ ] Configure privacy policy
+- [ ] Write privacy policy
 
 **Deliverable**: Production-ready app ready for distribution.
 
@@ -338,33 +375,62 @@ This document outlines the original implementation plan for building Zelland as 
 
 | Milestone | Estimated Effort | Dependencies |
 |-----------|------------------|--------------|
-| M1: Setup | 2-4 hours | None |
-| M2: Bridge | 3-5 hours | M1 |
-| M3: ModBar | 3-4 hours | M2 |
-| M4: AlphaGrid | 4-6 hours | M3 |
-| M5: Multi-Session | 4-6 hours | M2 |
-| M6: Polish | 4-6 hours | M3, M4, M5 |
-| M7: Advanced | 6-10 hours | M6 (optional) |
-| M8: Testing | 4-6 hours | All |
-| **Total** | **30-47 hours** | |
+| M4: WebView Integration | 4-6 hours | None |
+| M5: Gesture Controls | 4-5 hours | M4 |
+| M6: Multi-Session | 4-6 hours | M4 |
+| M7: Persistence | 5-7 hours | M6 |
+| M8: Polish | 6-8 hours | M5, M6, M7 |
+| M9: Advanced (optional) | 8-12 hours | M8 |
+| M10: Testing & Release | 6-10 hours | All |
+| **Total** | **37-54 hours** | |
 
 ## Critical Path
 
-```
-M1 (Setup) → M2 (Bridge) → M3 (ModBar) → M4 (AlphaGrid) → M6 (Polish)
-                    ↓
-                M5 (Multi-Session) → M6 (Polish)
+```text
+M4 (WebView) → M5 (Gestures)
+      ↓
+M6 (Multi-Session) → M7 (Persistence) → M8 (Polish) → M10 (Testing)
 ```
 
-M5 can be developed in parallel with M3/M4 after M2 is complete.
+M5 can be developed in parallel with M6 after M4 is complete.
 
 ## Success Criteria
 
-- ✅ Terminal displays and renders ANSI codes correctly
-- ✅ Custom keyboard sends all standard terminal key sequences
-- ✅ Can create and switch between multiple terminal sessions
-- ✅ Sessions maintain state across swipes
-- ✅ App performs smoothly (60 FPS) with 5+ sessions
+- ✅ Can connect to remote host via HTTPS
+- ✅ Can access Zellij web interface through WebView
+- ✅ Can use terminal fully (type, navigate, run commands)
+- ✅ Swipe gestures switch Zellij tabs
+- ✅ Can manage multiple sessions
 - ✅ Sessions persist across app restarts
-- ✅ No crashes on device rotation or lifecycle events
+- ✅ Smooth performance with 5+ sessions
+- ✅ Handles network interruptions gracefully
 - ✅ Works on Android 7.0+ devices
+
+## Key Differences from Original Plan
+
+### Removed Features (Not Needed with Zellij)
+
+- ❌ Custom keyboard (ModBar/AlphaGrid) - Zellij web has built-in keyboard
+- ❌ xterm.js local integration - Using Zellij's web interface instead
+- ❌ JavaScript bridge for terminal I/O - WebView directly displays Zellij
+- ❌ SSH Tunneling - Direct HTTPS connection used instead
+
+### New Features (Zellij Integration)
+
+- ✅ Direct HTTPS connection management
+- ✅ Gesture-to-keyboard-shortcut mapping
+- ✅ Session resurrection (Zellij's built-in persistence)
+
+### Architectural Benefits
+
+- **Simpler Client**: No need to implement terminal emulation or SSH tunneling
+- **Server-Side State**: Zellij handles all terminal state, buffers, and layout
+- **Session Persistence**: Zellij automatically saves session state
+- **Rich Features**: Tab management, panes, layouts all built into Zellij
+- **Proven Technology**: Zellij web is battle-tested
+
+### Trade-offs
+
+- **Network Dependency**: Requires active connection (no offline mode)
+- **Server Requirement**: Must install Zellij on remote hosts and expose web port
+- **WebView Overhead**: Loading web interface in WebView uses more resources than native UI

@@ -7,8 +7,10 @@ import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.connection.channel.direct.Session
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import net.schmizz.sshj.userauth.keyprovider.KeyProvider
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.io.File
 import java.io.IOException
+import java.security.Security
 import java.util.concurrent.TimeUnit
 
 /**
@@ -18,6 +20,13 @@ class SSHConnectionManager {
 
     private var sshClient: SSHClient? = null
     private var config: SSHConfig? = null
+
+    init {
+        // Ensure Bouncy Castle is registered as a security provider
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(BouncyCastleProvider())
+        }
+    }
 
     /**
      * Connect to SSH host and authenticate
@@ -39,8 +48,15 @@ class SSHConnectionManager {
             client.connectTimeout = 30000 // 30 seconds
             client.timeout = 10000 // 10 seconds for operations
 
+            // Handle localhost redirection for Android Emulator
+            val host = if (sshConfig.host == "localhost" || sshConfig.host == "127.0.0.1") {
+                "10.0.2.2"
+            } else {
+                sshConfig.host
+            }
+
             // Connect to host
-            client.connect(sshConfig.host, sshConfig.port)
+            client.connect(host, sshConfig.port)
 
             // Authenticate
             when (sshConfig.authMethod) {

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/gray_dark"
+    android:padding="4dp">
+
+    <!-- Number Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:weightSum="10">
+        
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1" android:tag="1" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="2" android:tag="2" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="3" android:tag="3" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="4" android:tag="4" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="5" android:tag="5" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="6" android:tag="6" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="7" android:tag="7" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="8" android:tag="8" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="9" android:tag="9" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="0" android:tag="0" />
+    </LinearLayout>
+
+    <!-- QWERTY Row 1 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:weightSum="10">
+        
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="q" android:tag="q" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="w" android:tag="w" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="e" android:tag="e" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="r" android:tag="r" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="t" android:tag="t" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="y" android:tag="y" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="u" android:tag="u" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="i" android:tag="i" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="o" android:tag="o" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="p" android:tag="p" />
+    </LinearLayout>
+
+    <!-- QWERTY Row 2 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:weightSum="10">
+        
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="ESC" android:tag="Escape" android:textSize="10sp" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="a" android:tag="a" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="s" android:tag="s" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="d" android:tag="d" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="f" android:tag="f" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="g" android:tag="g" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="h" android:tag="h" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="j" android:tag="j" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="k" android:tag="k" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="l" android:tag="l" />
+    </LinearLayout>
+
+    <!-- QWERTY Row 3 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:weightSum="11">
+        
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="⇧" android:tag="Shift" android:id="@+id/btnShift" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="z" android:tag="z" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="x" android:tag="x" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="c" android:tag="c" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="v" android:tag="v" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="b" android:tag="b" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="n" android:tag="n" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="m" android:tag="m" />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="," android:tag="," />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="." android:tag="." />
+        <Button style="@style/Widget.Zelland.Button.Keyboard" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="/" android:tag="/" />
+    </LinearLayout>
+
+</LinearLayout>

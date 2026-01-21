@@ -115,15 +115,43 @@ class ZellijManager(private val sshManager: SSHConnectionManager) {
             )
 
             if (result.success) {
-                val token = result.stdout.trim()
-                if (token.isNotEmpty()) {
-                    android.util.Log.d("ZellijManager", "Generated Zellij auth token")
+                // The output might contain ANSI escape codes, so we need to clean it up
+                // Example output: "Created token successfully\n\ntoken_1: 40cfd772-e052-43a0-8acf-e64b1b8825fb"
+                // Or sometimes just the token if piped, but let's be robust.
+                
+                val rawOutput = result.stdout
+                
+                // Remove ANSI escape codes
+                val cleanOutput = rawOutput.replace(Regex("\u001B\\[[;\\d]*m"), "")
+                
+                // Look for the token pattern (UUID-like)
+                // Or just take the last line if it looks like a token
+                // The log shows: "token_1: 40cfd772-e052-43a0-8acf-e64b1b8825fb"
+                
+                val tokenMatch = Regex("token_\\d+:\\s*([a-f0-9\\-]+)").find(cleanOutput)
+                if (tokenMatch != null) {
+                    val token = tokenMatch.groupValues[1]
+                    android.util.Log.d("ZellijManager", "Extracted Zellij auth token: $token")
                     return@withContext token
-                } else {
-                    throw ZellijException.StartupFailed(
-                        "Failed to create auth token: empty output"
-                    )
                 }
+                
+                // Fallback: try to find just a UUID in the output
+                val uuidMatch = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}").find(cleanOutput)
+                if (uuidMatch != null) {
+                    val token = uuidMatch.value
+                    android.util.Log.d("ZellijManager", "Found UUID token: $token")
+                    return@withContext token
+                }
+
+                // If output is just the token (no text)
+                val trimmed = cleanOutput.trim()
+                if (trimmed.isNotEmpty() && trimmed.length > 20) {
+                     return@withContext trimmed
+                }
+
+                throw ZellijException.StartupFailed(
+                    "Failed to parse auth token from output: $cleanOutput"
+                )
             } else {
                 throw ZellijException.StartupFailed(
                     "Failed to create auth token: ${result.stderr}"
@@ -166,10 +194,9 @@ class ZellijManager(private val sshManager: SSHConnectionManager) {
         }
 
         // Start Zellij web in background
-        val startCommand = """
-            nohup zellij web > /tmp/zellij-web.log 2>&1 &
-            echo $!
-        """.trimIndent()
+        // Use nohup and redirect output to a log file
+        // IMPORTANT: We need to ensure the process detaches properly so SSH can close
+        val startCommand = "nohup zellij web > /tmp/zellij-web.log 2>&1 &"
 
         val result = sshManager.executeCommand(startCommand, timeoutSeconds = 10)
         if (!result.success) {
@@ -178,9 +205,7 @@ class ZellijManager(private val sshManager: SSHConnectionManager) {
             )
         }
 
-        // Get the PID that was started
-        val pid = result.stdout.trim().toIntOrNull()
-        android.util.Log.d("ZellijManager", "Started Zellij web with PID: $pid")
+        android.util.Log.d("ZellijManager", "Started Zellij web command")
 
         // Wait for server to start
         delay(STARTUP_WAIT_MS)
