@@ -1,14 +1,18 @@
 package com.zelland.ui
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.SystemClock
 import android.text.InputType
 import android.util.AttributeSet
+import android.view.GestureDetector
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
 import android.webkit.WebView
+import kotlin.math.abs
 
 /**
  * Custom WebView optimized for terminal input
@@ -17,21 +21,75 @@ class TerminalWebView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : WebView(context, attrs, defStyleAttr) {
+) : WebView(context, attrs, defStyleAttr), GestureDetector.OnGestureListener {
 
     // Reference to the modifier state provider
     var modifierProvider: ModifierProvider? = null
+
+    // Listener for swipes to switch Zellij tabs
+    var onZellijTabSwipeListener: ((SwipeDirection) -> Unit)? = null
 
     interface ModifierProvider {
         fun getMetaState(): Int
         fun onModifierUsed()
     }
 
+    enum class SwipeDirection { LEFT, RIGHT }
+
+    private val gestureDetector = GestureDetector(context, this)
+    
+    // Swipe thresholds
+    private val minSwipeDistance = 150
+    private val minSwipeVelocity = 150
+    // Margin for edge swipes (to allow ViewPager navigation later)
+    private val edgeSwipeMargin = 80
+
     init {
         // Ensure the WebView is focusable to receive keyboard input
         isFocusable = true
         isFocusableInTouchMode = true
     }
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        return gestureDetector.onTouchEvent(event) || super.onTouchEvent(event)
+    }
+
+    // --- GestureDetector.OnGestureListener implementation ---
+
+    override fun onDown(e: MotionEvent): Boolean = false
+    override fun onShowPress(e: MotionEvent) {}
+    override fun onSingleTapUp(e: MotionEvent): Boolean = false
+    override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean = false
+    override fun onLongPress(e: MotionEvent) {}
+
+    override fun onFling(
+        e1: MotionEvent?,
+        e2: MotionEvent,
+        velocityX: Float,
+        velocityY: Float
+    ): Boolean {
+        if (e1 == null) return false
+        
+        val diffX = e2.x - e1.x
+        val diffY = e2.y - e1.y
+        
+        // Detect horizontal swipe
+        if (abs(diffX) > abs(diffY) && abs(diffX) > minSwipeDistance && abs(velocityX) > minSwipeVelocity) {
+            // Check if it's an edge swipe (ignore those for Zellij tab switching)
+            if (e1.x > edgeSwipeMargin && e1.x < width - edgeSwipeMargin) {
+                if (diffX > 0) {
+                    onZellijTabSwipeListener?.invoke(SwipeDirection.RIGHT)
+                } else {
+                    onZellijTabSwipeListener?.invoke(SwipeDirection.LEFT)
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    // --- Input and Keyboard handling ---
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
         val ic = super.onCreateInputConnection(outAttrs) ?: return null

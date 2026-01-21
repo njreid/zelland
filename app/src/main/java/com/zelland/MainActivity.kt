@@ -3,6 +3,7 @@ package com.zelland
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,7 +23,9 @@ class MainActivity : ComponentActivity() {
         if (result.resultCode == Activity.RESULT_OK) {
             val config = result.data?.getParcelableExtra<SSHConfig>("ssh_config")
             if (config != null) {
-                viewModel.addSession(config)
+                if (!viewModel.addSession(config)) {
+                    Toast.makeText(this, "Session already exists for this host and name", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }

@@ -12,7 +12,6 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -85,14 +84,20 @@ fun TerminalScreen(
         }
     }
 
+    fun dispatchKeyEventWithModifiers(keyCode: Int, modifiers: Int) {
+        webViewRef?.let { webView ->
+            val downTime = SystemClock.uptimeMillis()
+            webView.dispatchKeyEvent(KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, keyCode, 0, modifiers))
+            webView.dispatchKeyEvent(KeyEvent(downTime, downTime, KeyEvent.ACTION_UP, keyCode, 0, modifiers))
+        }
+    }
+
     fun sendKey(key: String, keyCode: Int) {
         val metaState = modifierProvider.getMetaState()
-        webViewRef?.let { webView ->
-            if (keyCode != 0) {
-                val downTime = SystemClock.uptimeMillis()
-                webView.dispatchKeyEvent(KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, keyCode, 0, metaState))
-                webView.dispatchKeyEvent(KeyEvent(downTime, downTime, KeyEvent.ACTION_UP, keyCode, 0, metaState))
-            } else {
+        if (keyCode != 0) {
+            dispatchKeyEventWithModifiers(keyCode, metaState)
+        } else {
+            webViewRef?.let { webView ->
                 val js = """
                     (function() {
                         let target = document.querySelector('.xterm-helper-textarea') || document.activeElement || document.body;
@@ -158,9 +163,15 @@ fun TerminalScreen(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         this.modifierProvider = modifierProvider
-                        setupWebView(this, context) { title ->
-                            Toast.makeText(ctx, title, Toast.LENGTH_SHORT).show()
+                        this.onZellijTabSwipeListener = { direction ->
+                            val keyCode = if (direction == TerminalWebView.SwipeDirection.LEFT) {
+                                KeyEvent.KEYCODE_DPAD_LEFT
+                            } else {
+                                KeyEvent.KEYCODE_DPAD_RIGHT
+                            }
+                            dispatchKeyEventWithModifiers(keyCode, KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON)
                         }
+                        setupWebView(this, context)
                         webViewRef = this
                         session.localUrl?.let { loadUrl(it) }
                     }
@@ -378,7 +389,7 @@ private fun hideKeyboard(context: android.content.Context, webView: WebView?) {
 }
 
 @SuppressLint("SetJavaScriptEnabled")
-private fun setupWebView(webView: WebView, context: android.content.Context, onTitleChange: (String) -> Unit) {
+private fun setupWebView(webView: WebView, context: android.content.Context) {
     webView.settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true
@@ -422,10 +433,6 @@ private fun setupWebView(webView: WebView, context: android.content.Context, onT
                 }
                 setInterval(fixTextArea, 1000);
                 fixTextArea();
-
-                new MutationObserver(function(mutations) {
-                    if (document.title) { console.log('Title changed: ' + document.title); }
-                }).observe(document.querySelector('title'), { subtree: true, characterData: true, childList: true });
             """.trimIndent()
             view?.evaluateJavascript(js, null)
         }
@@ -438,12 +445,6 @@ private fun setupWebView(webView: WebView, context: android.content.Context, onT
 
     webView.webChromeClient = object : WebChromeClient() {
         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-            if (consoleMessage != null) {
-                val msg = consoleMessage.message()
-                if (msg.startsWith("Title changed:")) {
-                    onTitleChange(msg.substringAfter("Title changed:").trim())
-                }
-            }
             return true
         }
     }

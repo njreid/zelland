@@ -49,8 +49,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun saveSessions() {
-        val sessionsToSave = _sessions.value.orEmpty()
+    private fun saveSessions(sessionsToSave: List<TerminalSession>) {
         val json = gson.toJson(sessionsToSave)
         sharedPreferences.edit().putString("sessions", json).apply()
     }
@@ -84,7 +83,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     /**
      * Add a new session with the given SSH config
      */
-    fun addSession(config: SSHConfig) {
+    fun addSession(config: SSHConfig): Boolean {
+        // Check for duplicates
+        val currentSessions = _sessions.value.orEmpty().toMutableList()
+        val isDuplicate = currentSessions.any { 
+            it.sshConfig.host == config.host && it.zellijSessionName == config.zellijSessionName 
+        }
+        
+        if (isDuplicate) {
+            return false
+        }
+
         val sessionId = UUID.randomUUID().toString()
         val title = config.name.ifBlank { config.host }
         val zellijName = config.zellijSessionName ?: "session-${sessionId.take(8)}"
@@ -97,14 +106,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             isConnected = false
         )
 
-        val currentSessions = _sessions.value.orEmpty().toMutableList()
         currentSessions.add(newSession)
-        _sessions.postValue(currentSessions)
+        _sessions.value = currentSessions
 
         // Auto-select the new session
-        _activeSessionIndex.postValue(currentSessions.size - 1)
+        _activeSessionIndex.value = currentSessions.size - 1
         
-        saveSessions()
+        saveSessions(currentSessions)
+        return true
     }
 
     /**
@@ -115,15 +124,15 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
         val currentSessions = _sessions.value.orEmpty().toMutableList()
         currentSessions.removeAll { it.id == sessionId }
-        _sessions.postValue(currentSessions)
+        _sessions.value = currentSessions
 
         // Adjust active index if needed
         val activeIndex = _activeSessionIndex.value ?: 0
         if (activeIndex >= currentSessions.size && currentSessions.isNotEmpty()) {
-            _activeSessionIndex.postValue(currentSessions.size - 1)
+            _activeSessionIndex.value = currentSessions.size - 1
         }
         
-        saveSessions()
+        saveSessions(currentSessions)
     }
 
     /**
@@ -206,11 +215,15 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             val session = _sessions.value?.find { it.id == sessionId }
             if (session != null) {
-                updateSession(session.copy(isConnected = false, localUrl = null))
-            }
-
-            withContext(Dispatchers.Main) {
-                _connectionStatus.value = ConnectionStatus.Disconnected
+                // Use withContext to update LiveData on the main thread
+                withContext(Dispatchers.Main) {
+                    updateSession(session.copy(isConnected = false, localUrl = null))
+                    _connectionStatus.value = ConnectionStatus.Disconnected
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    _connectionStatus.value = ConnectionStatus.Disconnected
+                }
             }
         }
     }
@@ -230,8 +243,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val index = currentSessions.indexOfFirst { it.id == updatedSession.id }
         if (index != -1) {
             currentSessions[index] = updatedSession
-            _sessions.postValue(currentSessions)
-            saveSessions()
+            _sessions.value = currentSessions
+            saveSessions(currentSessions)
         }
     }
 

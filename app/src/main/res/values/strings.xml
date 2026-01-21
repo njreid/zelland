@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Zelland</string>
+    <string name="app_name">zelland</string>
 
     <!-- SSH Configuration -->
     <string name="ssh_config_title">SSH Configuration</string>
