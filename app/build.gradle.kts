@@ -1,7 +1,11 @@
+import org.gradle.kotlin.dsl.support.kotlinCompilerOptions
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("kotlin-parcelize")
+  id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -53,9 +57,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+  kotlin {
+    compilerOptions {
+      jvmTarget = JvmTarget.fromTarget("17")
     }
+  }
 
     buildFeatures {
         viewBinding = true
