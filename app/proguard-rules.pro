@@ -19,6 +19,15 @@
 -keep class org.slf4j.** { *; }
 -dontwarn org.slf4j.**
 
+# EdDSA and SSHJ platform specific references
+# Tell R8 to ignore missing classes from desktop Java packages
+-dontwarn net.i2p.crypto.eddsa.**
+-dontwarn sun.security.**
+-dontwarn com.sun.jna.**
+
+# Add this to ignore missing classes in general if they are from internal sun packages
+-ignorewarnings
+
 # Keep Kotlin coroutines
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}

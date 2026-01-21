@@ -19,9 +19,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -210,10 +210,10 @@ fun TerminalQuickBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 QuickKeyButton("PgUp", fontSize = 9) { onKeyClick("PageUp", KeyEvent.KEYCODE_PAGE_UP) }
-                DPadButton(Icons.Default.KeyboardArrowLeft) { onKeyClick("ArrowLeft", KeyEvent.KEYCODE_DPAD_LEFT) }
+                DPadButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft) { onKeyClick("ArrowLeft", KeyEvent.KEYCODE_DPAD_LEFT) }
                 DPadButton(Icons.Default.KeyboardArrowUp) { onKeyClick("ArrowUp", KeyEvent.KEYCODE_DPAD_UP) }
                 DPadButton(Icons.Default.KeyboardArrowDown) { onKeyClick("ArrowDown", KeyEvent.KEYCODE_DPAD_DOWN) }
-                DPadButton(Icons.Default.KeyboardArrowRight) { onKeyClick("ArrowRight", KeyEvent.KEYCODE_DPAD_RIGHT) }
+                DPadButton(Icons.AutoMirrored.Filled.KeyboardArrowRight) { onKeyClick("ArrowRight", KeyEvent.KEYCODE_DPAD_RIGHT) }
                 QuickKeyButton("PgDn", fontSize = 9) { onKeyClick("PageDown", KeyEvent.KEYCODE_PAGE_DOWN) }
             }
         }
