@@ -1,8 +1,10 @@
 package com.zelland.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -92,16 +94,35 @@ fun SessionCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = session.title,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = session.title,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    if (session.isConnected) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(
+                                    if (session.isDaemonConnected) Color.Green else Color.Yellow,
+                                    CircleShape
+                                )
+                        )
+                    }
+                }
+                Text(
+                    text = session.sshConfig.host,
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+            }
             
             Button(onClick = onConnect) {
-                Text("Connect")
+                Text(if (session.isConnected) "Open" else "Connect")
             }
             
             IconButton(onClick = onDelete) {

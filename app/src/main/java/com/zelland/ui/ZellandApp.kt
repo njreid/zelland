@@ -12,7 +12,7 @@ import com.zelland.ui.theme.ZellandTheme
 
 sealed class Screen {
     object Main : Screen()
-    data class Terminal(val sessionId: String) : Screen()
+    data class SessionView(val sessionId: String) : Screen()
 }
 
 @Composable
@@ -29,7 +29,7 @@ fun ZellandApp(
         if (connectionStatus is TerminalViewModel.ConnectionStatus.Connected) {
             val session = sessions.find { it.isConnected }
             if (session != null) {
-                currentScreen = Screen.Terminal(session.id)
+                currentScreen = Screen.SessionView(session.id)
             }
         } else if (connectionStatus is TerminalViewModel.ConnectionStatus.Disconnected) {
             currentScreen = Screen.Main
@@ -48,14 +48,23 @@ fun ZellandApp(
                         }
                     )
                 }
-                is Screen.Terminal -> {
+                is Screen.SessionView -> {
                     val session = sessions.find { it.id == screen.sessionId }
                     if (session != null) {
-                        TerminalScreen(
-                            session = session,
-                            viewModel = viewModel,
-                            onModifierUsed = { /* Handled in TerminalScreen */ }
-                        )
+                        if (session.activeView == TerminalSession.ActiveView.Terminal) {
+                            TerminalScreen(
+                                session = session,
+                                viewModel = viewModel,
+                                onModifierUsed = { /* Handled in TerminalScreen */ }
+                            )
+                        } else if (session.activeView == TerminalSession.ActiveView.Viewer && session.openViewRequest != null) {
+                            ViewerScreen(
+                                data = session.openViewRequest,
+                                onClose = {
+                                    viewModel.switchToTerminal(session.id)
+                                }
+                            )
+                        }
                     } else {
                         currentScreen = Screen.Main
                     }

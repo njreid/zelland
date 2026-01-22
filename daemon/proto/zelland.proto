@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package zelland;
+
+option go_package = "github.com/zelland/daemon/proto/zelland";
+
+// Wrapper for all WebSocket messages
+message Envelope {
+  oneof payload {
+    KeepAlive ping = 1;
+    OpenViewRequest open_view = 2;
+    AnnotationAction annotation = 3;
+    ClientStatus status = 4;
+  }
+}
+
+message KeepAlive {
+  int64 timestamp = 1;
+}
+
+message OpenViewRequest {
+  string asset_id = 1;
+  string url = 2; // https://host/assets/xyz
+  enum FileType {
+    UNKNOWN = 0;
+    IMAGE = 1;
+    MARKDOWN = 2;
+    PDF = 3;
+  }
+  FileType file_type = 3;
+  string title = 4;
+  // For Markdown, initial state might be included here or fetched separately
+}
+
+message AnnotationAction {
+  enum ActionType {
+    CREATE = 0;
+    UPDATE = 1;
+    DELETE = 2;
+  }
+  ActionType type = 1;
+  string file_path = 2; // Or asset_id
+  AnnotationData data = 3;
+}
+
+message AnnotationData {
+  string id = 1;
+  string target_text = 2;
+  string context_hash = 3; // SHA of surrounding paragraph for robust anchoring
+  string body = 4; // The user's note
+  int64 timestamp = 5;
+}
+
+message ClientStatus {
+  bool active = 1;
+  string device_name = 2;
+}

@@ -2,14 +2,19 @@ package com.zelland.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.zelland.daemon.DaemonConnectionManager
 import com.zelland.model.SSHConfig
 import com.zelland.model.TerminalSession
+import com.zelland.proto.ClientStatus
+import com.zelland.proto.Envelope
+import com.zelland.proto.OpenViewRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,6 +37,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     private val _connectionStatus = MutableLiveData<ConnectionStatus>()
     val connectionStatus: LiveData<ConnectionStatus> = _connectionStatus
+
+    private val daemonManagers = mutableMapOf<String, DaemonConnectionManager>()
 
     private val gson = Gson()
     private val sharedPreferences = application.getSharedPreferences("zelland_prefs", Context.MODE_PRIVATE)
@@ -167,11 +174,100 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     lastConnected = System.currentTimeMillis()
                 ))
                 _connectionStatus.postValue(ConnectionStatus.Connected("Connected to ${session.title}"))
+
+                // Also connect to the companion daemon
+                connectToDaemon(sessionId, host, session.sshConfig.daemonPort, session.sshConfig.daemonPsk)
+
             } else {
                 android.util.Log.e("TerminalViewModel", "Connection failed")
                 _connectionStatus.postValue(ConnectionStatus.Error("Could not reach server at $url"))
             }
         }
+    }
+
+    private fun connectToDaemon(sessionId: String, host: String, port: Int, psk: String?) {
+        val manager = DaemonConnectionManager(host, port, psk, object : DaemonConnectionManager.DaemonListener {
+            override fun onMessageReceived(envelope: Envelope) {
+                Log.i("TerminalViewModel", "Received daemon message: ${envelope.payloadCase}")
+                when (envelope.payloadCase) {
+                    Envelope.PayloadCase.OPEN_VIEW -> {
+                        handleOpenView(sessionId, host, port, envelope.openView)
+                    }
+                    else -> {}
+                }
+            }
+
+            override fun onStatusChanged(connected: Boolean) {
+                Log.i("TerminalViewModel", "Daemon status changed: $connected for session $sessionId")
+                viewModelScope.launch(Dispatchers.Main) {
+                    val session = _sessions.value?.find { it.id == sessionId }
+                    if (session != null) {
+                        updateSession(session.copy(isDaemonConnected = connected))
+                    }
+                }
+            }
+
+            override fun onError(error: String) {
+                Log.e("TerminalViewModel", "Daemon error: $error")
+            }
+        })
+        daemonManagers[sessionId] = manager
+        manager.connect()
+    }
+
+    private fun handleOpenView(sessionId: String, host: String, daemonPort: Int, request: OpenViewRequest) {
+        viewModelScope.launch(Dispatchers.Main) {
+            val session = _sessions.value?.find { it.id == sessionId } ?: return@launch
+            
+            val fileType = when (request.fileType) {
+                OpenViewRequest.FileType.IMAGE -> TerminalSession.FileType.IMAGE
+                OpenViewRequest.FileType.MARKDOWN -> TerminalSession.FileType.MARKDOWN
+                OpenViewRequest.FileType.PDF -> TerminalSession.FileType.PDF
+                else -> TerminalSession.FileType.UNKNOWN
+            }
+
+            // Construct full URL if relative
+            val fullUrl = if (request.url.startsWith("http")) {
+                request.url
+            } else {
+                "https://$host:$daemonPort${if (request.url.startsWith("/")) "" else "/"}${request.url}"
+            }
+
+            val viewData = TerminalSession.OpenViewData(
+                assetId = request.assetId,
+                url = fullUrl,
+                fileType = fileType,
+                title = request.title
+            )
+
+            updateSession(session.copy(
+                activeView = TerminalSession.ActiveView.Viewer,
+                openViewRequest = viewData
+            ))
+
+            // Notify daemon that we are now in VIEWER state
+            sendStatusUpdate(sessionId, ClientStatus.ViewState.VIEWER, request.assetId)
+        }
+    }
+
+    fun switchToTerminal(sessionId: String) {
+        val session = _sessions.value?.find { it.id == sessionId } ?: return
+        updateSession(session.copy(activeView = TerminalSession.ActiveView.Terminal))
+        sendStatusUpdate(sessionId, ClientStatus.ViewState.TERMINAL)
+    }
+
+    private fun sendStatusUpdate(sessionId: String, state: ClientStatus.ViewState, assetId: String = "") {
+        val manager = daemonManagers[sessionId] ?: return
+        val status = ClientStatus.newBuilder()
+            .setState(state)
+            .setActiveAssetId(assetId)
+            .build()
+        
+        val envelope = Envelope.newBuilder()
+            .setStatus(status)
+            .build()
+        
+        manager.sendEnvelope(envelope)
     }
     
     /**
@@ -213,11 +309,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
      */
     fun disconnectSession(sessionId: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            daemonManagers[sessionId]?.disconnect()
+            daemonManagers.remove(sessionId)
+
             val session = _sessions.value?.find { it.id == sessionId }
             if (session != null) {
                 // Use withContext to update LiveData on the main thread
                 withContext(Dispatchers.Main) {
-                    updateSession(session.copy(isConnected = false, localUrl = null))
+                    updateSession(session.copy(isConnected = false, isDaemonConnected = false, localUrl = null))
                     _connectionStatus.value = ConnectionStatus.Disconnected
                 }
             } else {
@@ -250,6 +349,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         super.onCleared()
+        daemonManagers.values.forEach { it.disconnect() }
+        daemonManagers.clear()
     }
 
     /**

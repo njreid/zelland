@@ -5,7 +5,8 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("kotlin-parcelize")
-  id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.protobuf")
 }
 
 android {
@@ -57,11 +58,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-  kotlin {
-    compilerOptions {
-      jvmTarget = JvmTarget.fromTarget("17")
+    kotlin {
+        compilerOptions {
+            jvmTarget = JvmTarget.fromTarget("17")
+        }
     }
-  }
 
     buildFeatures {
         viewBinding = true
@@ -85,6 +86,24 @@ android {
             excludes += "META-INF/notice.txt"
             excludes += "META-INF/*.kotlin_module"
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:4.33.4"
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("java") {
+                    option("lite")
+                }
+                create("kotlin") {
+                    option("lite")
+                }
+            }
         }
     }
 }
@@ -123,9 +142,20 @@ dependencies {
     implementation("androidx.compose.runtime:runtime-livedata")
     implementation("androidx.compose.material:material-icons-extended")
 
+    // Coil for image loading
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+
+    // OkHttp
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Protobuf
+    implementation("com.google.protobuf:protobuf-kotlin-lite:4.33.4")
+    implementation("com.google.protobuf:protobuf-javalite:4.33.4")
 
     // SSH - SSHJ
     implementation("com.hierynomus:sshj:0.38.0")

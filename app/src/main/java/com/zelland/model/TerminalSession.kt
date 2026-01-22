@@ -15,14 +15,35 @@ data class TerminalSession(
     val zellijSessionName: String,
 
     val isConnected: Boolean = false,
+    val isDaemonConnected: Boolean = false,
     val localUrl: String? = null,
     
     // Store the last known auth token to try reconnecting directly
     val lastAuthToken: String? = null,
 
     // Track last connection time
-    val lastConnected: Long = System.currentTimeMillis()
+    val lastConnected: Long = System.currentTimeMillis(),
+
+    // Universal Viewer State
+    val activeView: ActiveView = ActiveView.Terminal,
+    val openViewRequest: OpenViewData? = null
 ) {
+    enum class ActiveView {
+        Terminal,
+        Viewer
+    }
+
+    data class OpenViewData(
+        val assetId: String,
+        val url: String,
+        val fileType: FileType,
+        val title: String
+    )
+
+    enum class FileType {
+        UNKNOWN, IMAGE, MARKDOWN, PDF
+    }
+
     /**
      * Get display name for this session
      */

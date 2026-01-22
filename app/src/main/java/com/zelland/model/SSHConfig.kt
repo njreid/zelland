@@ -18,7 +18,9 @@ data class SSHConfig(
     val privateKeyPath: String? = null,
     val privateKeyPassphrase: String? = null,
     val savePassword: Boolean = false,
-    val zellijSessionName: String? = null
+    val zellijSessionName: String? = null,
+    val daemonPort: Int = 8083,
+    val daemonPsk: String? = null
 ) : Parcelable {
 
     enum class AuthMethod {
