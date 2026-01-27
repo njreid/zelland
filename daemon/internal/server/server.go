@@ -20,6 +20,8 @@ import (
 
 type Server struct {
 	port         int
+	certFile     string
+	keyFile      string
 	upgrader     websocket.Upgrader
 	clients      map[*websocket.Conn]bool
 	clientsMu    sync.Mutex
@@ -29,9 +31,11 @@ type Server struct {
 	assetPathsMu sync.RWMutex
 }
 
-func New(port int) *Server {
+func New(port int, certFile, keyFile string) *Server {
 	return &Server{
-		port: port,
+		port:         port,
+		certFile:     certFile,
+		keyFile:      keyFile,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // Allow all origins for now
@@ -55,7 +59,11 @@ func (s *Server) Start() error {
 	http.Handle("/api/v1/trigger/md", s.loopbackOnly(http.HandlerFunc(s.handleTriggerMarkdown)))
 
 	addr := fmt.Sprintf(":%d", s.port)
-	log.Printf("Starting Zelland Daemon on %s", addr)
+	log.Printf("Starting Zelland Daemon on %s (TLS: %v)", addr, s.certFile != "")
+	
+	if s.certFile != "" && s.keyFile != "" {
+		return http.ListenAndServeTLS(addr, s.certFile, s.keyFile, nil)
+	}
 	return http.ListenAndServe(addr, nil)
 }
 

@@ -6,8 +6,9 @@ import (
 )
 
 type Config struct {
-	Port int `json:"port"`
-	// Add more fields as needed (e.g. FCM keys, storage paths)
+	Port     int    `json:"port"`
+	CertFile string `json:"cert_file"`
+	KeyFile  string `json:"key_file"`
 }
 
 func Load(path string) (*Config, error) {
@@ -26,6 +27,8 @@ func Load(path string) (*Config, error) {
 
 func Default() *Config {
 	return &Config{
-		Port: 8083,
+		Port:     8083,
+		CertFile: "",
+		KeyFile:  "",
 	}
 }

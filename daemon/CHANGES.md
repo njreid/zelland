@@ -75,6 +75,7 @@ This document tracks the incremental development of the `zellandd` companion dae
     - [x] Implement random path generation for assets (`/assets/7f8a...`).
     - [x] Implement auto-cleanup (expire assets after N minutes or session end).
     - [x] Bind IPC/RPC endpoints to loopback only.
+    - [x] Implement TLS (Self-signed) for WebSocket and Asset Server.
 - [x] **Configuration**
     - [x] Add config file support (YAML/TOML) for listening ports, storage paths, etc. (Implemented JSON for now)
 

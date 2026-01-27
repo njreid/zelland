@@ -1,4 +1,4 @@
-annotation timestamp=1769034445 id="simulated-ann-142725" user="" {
+annotation id="simulated-ann-164155" user="" timestamp=1769128915 {
 	context_hash "sha256:dummy"
 	target_text "This is interesting"
 	body "Simulated annotation from Mock Client"

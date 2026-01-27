@@ -1,6 +1,8 @@
 package com.zelland.ui
 
 import android.annotation.SuppressLint
+import android.net.http.SslError
+import android.webkit.SslErrorHandler
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -104,7 +106,12 @@ fun GenericWebViewer(url: String) {
                 settings.domStorageEnabled = true
                 settings.builtInZoomControls = true
                 settings.displayZoomControls = false
-                webViewClient = WebViewClient()
+                webViewClient = object : WebViewClient() {
+                    @SuppressLint("WebViewClientOnReceivedSslError")
+                    override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                        handler?.proceed()
+                    }
+                }
                 loadUrl(url)
             }
         },

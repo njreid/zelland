@@ -25,7 +25,7 @@ data class TerminalSession(
     val lastConnected: Long = System.currentTimeMillis(),
 
     // Universal Viewer State
-    val activeView: ActiveView = ActiveView.Terminal,
+    val activeView: ActiveView? = ActiveView.Terminal,
     val openViewRequest: OpenViewData? = null
 ) {
     enum class ActiveView {

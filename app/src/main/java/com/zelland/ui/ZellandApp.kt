@@ -51,13 +51,14 @@ fun ZellandApp(
                 is Screen.SessionView -> {
                     val session = sessions.find { it.id == screen.sessionId }
                     if (session != null) {
-                        if (session.activeView == TerminalSession.ActiveView.Terminal) {
+                        val currentView = session.activeView ?: TerminalSession.ActiveView.Terminal
+                        if (currentView == TerminalSession.ActiveView.Terminal) {
                             TerminalScreen(
                                 session = session,
                                 viewModel = viewModel,
                                 onModifierUsed = { /* Handled in TerminalScreen */ }
                             )
-                        } else if (session.activeView == TerminalSession.ActiveView.Viewer && session.openViewRequest != null) {
+                        } else if (currentView == TerminalSession.ActiveView.Viewer && session.openViewRequest != null) {
                             ViewerScreen(
                                 data = session.openViewRequest,
                                 onClose = {

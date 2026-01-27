@@ -1,13 +1,14 @@
 # Zelland - Design Document
 
 ## Overview
+
 **Zelland** (Zellij + Android) is an Android application that connects to remote Zellij web servers via SSH, providing a native mobile interface for managing terminal sessions with gesture controls and multi-host support.
 
 ## Architecture
 
 ### High-Level Components
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │         MainActivity                     │
 │  ┌───────────────────────────────────┐  │
@@ -32,6 +33,7 @@
 ### 1. Terminal Component
 
 #### TerminalFragment
+
 - **Responsibility**: Manages a single terminal session
 - **Contains**:
   - WebView hosting xterm.js
@@ -40,12 +42,14 @@
 - **Lifecycle**: Retained across swipes (not destroyed)
 
 #### WebView Configuration
+
 - **Local Assets**: HTML/JS/CSS bundle in `assets/terminal/`
 - **JavaScript Enabled**: Required for xterm.js
 - **DOM Storage**: Enabled for session persistence
 - **JavaScript Interface**: Bidirectional communication bridge
 
 #### xterm.js Integration
+
 ```javascript
 // assets/terminal/index.html structure
 - xterm.js library (v5.x)
@@ -57,7 +61,9 @@
 ### 2. Custom Keyboard System
 
 #### Design Philosophy
+
 Traditional Android keyboards are optimized for text input, not terminal control sequences. Our custom keyboard provides:
+
 - Direct access to modifier keys (Ctrl, Alt, Shift)
 - Easy access to special keys (Esc, Tab, Arrow keys)
 - Combination input without system keyboard interference
@@ -66,12 +72,14 @@ Traditional Android keyboards are optimized for text input, not terminal control
 #### Two-Layer Architecture
 
 **Layer 1: ModBar (Always Visible)**
+
 - Horizontal strip at bottom of screen
 - Toggle buttons: Ctrl, Alt, Shift, Esc, Tab
 - Fixed height: 48-56dp
 - Visual state: Normal/Active/Pressed
 
 **Layer 2: AlphaGrid (Contextual)**
+
 - Appears above ModBar when modifier is active
 - Grid layout: 3 rows × 10 columns (adjustable)
 - Contains: A-Z, 0-9, symbols, arrows
@@ -79,7 +87,8 @@ Traditional Android keyboards are optimized for text input, not terminal control
 - Height: 140-180dp
 
 #### Input Flow
-```
+
+```text
 User Taps Ctrl → ModBar highlights Ctrl button
               → AlphaGrid slides up
               → User taps 'C'
@@ -91,7 +100,8 @@ User Taps Ctrl → ModBar highlights Ctrl button
 ### 3. Data Flow
 
 #### Input Path: Android → xterm.js
-```
+
+```text
 CustomKeyboardView → TerminalViewModel → TerminalFragment
     ↓
 WebView.evaluateJavascript("term.write('...')")
@@ -102,7 +112,8 @@ WebSocket backend (out of scope)
 ```
 
 #### Output Path: Backend → xterm.js → Display
-```
+
+```text
 WebSocket message → JavaScript handler
     ↓
 term.write(data)
@@ -115,6 +126,7 @@ WebView displays content
 ### 4. State Management
 
 #### TerminalViewModel
+
 ```kotlin
 class TerminalViewModel : ViewModel() {
     // Modifier state
@@ -142,6 +154,7 @@ data class TerminalSession(
 ```
 
 #### Session Persistence
+
 - Use `FragmentStateAdapter` for ViewPager2
 - Fragments retained in memory during swipes
 - Session state saved to SharedPreferences on pause
@@ -150,18 +163,21 @@ data class TerminalSession(
 ### 5. Key Technical Decisions
 
 #### Why WebView + xterm.js?
+
 - **Proven**: xterm.js is mature and battle-tested
 - **Feature-rich**: ANSI escape codes, 256 colors, Unicode
 - **Maintained**: Active development and community
 - **No reinvention**: Avoid building terminal emulation from scratch
 
 #### Why Custom Keyboard?
+
 - **Control**: Full control over key sequences
 - **UX**: Optimized for terminal workflows
 - **Space**: More screen space for terminal output
 - **Combos**: Easy modifier + key combinations
 
 #### Why ViewPager2?
+
 - **Swipe**: Natural gesture for switching sessions
 - **Performance**: Efficient view recycling
 - **Familiar**: Standard Android pattern
@@ -170,21 +186,25 @@ data class TerminalSession(
 ### 6. Key Mappings
 
 #### Control Sequences
+
 | Key Combo | Sequence | Hex Code |
-|-----------|----------|----------|
-| Ctrl+C    | `^C`     | `\u0003` |
-| Ctrl+D    | `^D`     | `\u0004` |
-| Ctrl+Z    | `^Z`     | `\u001A` |
-| Esc       | `ESC`    | `\u001B` |
-| Tab       | `TAB`    | `\u0009` |
-| Arrow Up  | `ESC[A`  | `\u001B[A` |
-| Arrow Down| `ESC[B`  | `\u001B[B` |
-| Arrow Right| `ESC[C` | `\u001B[C` |
-| Arrow Left| `ESC[D`  | `\u001B[D` |
+
+| Key Combo | Sequence | Hex Code || Key Combo | Sequence | Hex Code |
+| ----------- | ---------- | ---------- |  |  |  |  || ----------- | ---------- | ---------- |  |  |  |  || ----------- | ---------- | ---------- |  |  |  |  || ----------- | ---------- | ---------- |  |  |  |  || ----------- | ---------- | ---------- |  |  |  |  || ----------- | ---------- | ---------- |  |  |  |  || ----------- | ---------- | ---------- |  |  |  |  ||-----------|----------|----------|
+| Ctrl+C | `^C` | `\u0003` |  |  |  |  || Ctrl+C | `^C` | `\u0003` |  |  |  |  || Ctrl+C | `^C` | `\u0003` |  |  |  |  || Ctrl+C | `^C` | `\u0003` |  |  |  |  || Ctrl+C | `^C` | `\u0003` |  |  |  |  || Ctrl+C | `^C` | `\u0003` |  |  |  |  || Ctrl+C | `^C` | `\u0003` |  |  |  |  || Ctrl+C    | `^C`     | `\u0003` |
+| Ctrl+D | `^D` | `\u0004` |  |  |  |  || Ctrl+D | `^D` | `\u0004` |  |  |  |  || Ctrl+D | `^D` | `\u0004` |  |  |  |  || Ctrl+D | `^D` | `\u0004` |  |  |  |  || Ctrl+D | `^D` | `\u0004` |  |  |  |  || Ctrl+D | `^D` | `\u0004` |  |  |  |  || Ctrl+D | `^D` | `\u0004` |  |  |  |  || Ctrl+D    | `^D`     | `\u0004` |
+| Ctrl+Z | `^Z` | `\u001A` |  |  |  |  || Ctrl+Z | `^Z` | `\u001A` |  |  |  |  || Ctrl+Z | `^Z` | `\u001A` |  |  |  |  || Ctrl+Z | `^Z` | `\u001A` |  |  |  |  || Ctrl+Z | `^Z` | `\u001A` |  |  |  |  || Ctrl+Z | `^Z` | `\u001A` |  |  |  |  || Ctrl+Z | `^Z` | `\u001A` |  |  |  |  || Ctrl+Z    | `^Z`     | `\u001A` |
+| Esc | `ESC` | `\u001B` |  |  |  |  || Esc | `ESC` | `\u001B` |  |  |  |  || Esc | `ESC` | `\u001B` |  |  |  |  || Esc | `ESC` | `\u001B` |  |  |  |  || Esc | `ESC` | `\u001B` |  |  |  |  || Esc | `ESC` | `\u001B` |  |  |  |  || Esc | `ESC` | `\u001B` |  |  |  |  || Esc       | `ESC`    | `\u001B` |
+| Tab | `TAB` | `\u0009` |  |  |  |  || Tab | `TAB` | `\u0009` |  |  |  |  || Tab | `TAB` | `\u0009` |  |  |  |  || Tab | `TAB` | `\u0009` |  |  |  |  || Tab | `TAB` | `\u0009` |  |  |  |  || Tab | `TAB` | `\u0009` |  |  |  |  || Tab | `TAB` | `\u0009` |  |  |  |  || Tab       | `TAB`    | `\u0009` |
+| Arrow Up | `ESC[A` | `\u001B[A` |  |  |  |  || Arrow Up | `ESC[A` | `\u001B[A` |  |  |  |  || Arrow Up | `ESC[A` | `\u001B[A` |  |  |  |  || Arrow Up | `ESC[A` | `\u001B[A` |  |  |  |  || Arrow Up | `ESC[A` | `\u001B[A` |  |  |  |  || Arrow Up | `ESC[A` | `\u001B[A` |  |  |  |  || Arrow Up | `ESC[A` | `\u001B[A` |  |  |  |  || Arrow Up  | `ESC[A`  | `\u001B[A` |
+| Arrow Down | `ESC[B` | `\u001B[B` |  |  |  |  || Arrow Down | `ESC[B` | `\u001B[B` |  |  |  |  || Arrow Down | `ESC[B` | `\u001B[B` |  |  |  |  || Arrow Down | `ESC[B` | `\u001B[B` |  |  |  |  || Arrow Down | `ESC[B` | `\u001B[B` |  |  |  |  || Arrow Down | `ESC[B` | `\u001B[B` |  |  |  |  || Arrow Down | `ESC[B` | `\u001B[B` |  |  |  |  || Arrow Down| `ESC[B`  | `\u001B[B` |
+| Arrow Right | `ESC[C` | `\u001B[C` |  |  |  |  || Arrow Right | `ESC[C` | `\u001B[C` |  |  |  |  || Arrow Right | `ESC[C` | `\u001B[C` |  |  |  |  || Arrow Right | `ESC[C` | `\u001B[C` |  |  |  |  || Arrow Right | `ESC[C` | `\u001B[C` |  |  |  |  || Arrow Right | `ESC[C` | `\u001B[C` |  |  |  |  || Arrow Right | `ESC[C` | `\u001B[C` |  |  |  |  || Arrow Right| `ESC[C` | `\u001B[C` |
+| Arrow Left | `ESC[D` | `\u001B[D` |  |  |  |  || Arrow Left | `ESC[D` | `\u001B[D` |  |  |  |  || Arrow Left | `ESC[D` | `\u001B[D` |  |  |  |  || Arrow Left | `ESC[D` | `\u001B[D` |  |  |  |  || Arrow Left | `ESC[D` | `\u001B[D` |  |  |  |  || Arrow Left | `ESC[D` | `\u001B[D` |  |  |  |  || Arrow Left | `ESC[D` | `\u001B[D` |  |  |  |  || Arrow Left| `ESC[D`  | `\u001B[D` |
 
 ### 7. WebView ↔ JavaScript Bridge
 
 #### Android → JavaScript
+
 ```kotlin
 // Send input to terminal
 webView.evaluateJavascript("term.write('${escapedInput}')", null)
@@ -194,6 +214,7 @@ webView.evaluateJavascript("term.write('\\u0003')", null) // Ctrl+C
 ```
 
 #### JavaScript → Android
+
 ```kotlin
 // In Android
 webView.addJavascriptInterface(TerminalBridge(), "Android")
@@ -221,18 +242,21 @@ term.onData(data => {
 ### 8. UI/UX Considerations
 
 #### Terminal Display
+
 - **Font**: Monospace (Source Code Pro, JetBrains Mono)
 - **Size**: Configurable (12-16sp default)
 - **Theme**: Dark mode default, light mode optional
 - **Cursor**: Block/underline/bar options
 
 #### Keyboard UI
+
 - **Haptic Feedback**: Light tap on key press
 - **Visual Feedback**: Ripple effect + state color
 - **Animation**: Smooth slide-in/out (200-300ms)
 - **Spacing**: Adequate touch targets (48dp minimum)
 
 #### Session Management
+
 - **Tab Indicator**: Dots or labels above keyboard
 - **Add/Remove**: FAB or menu action
 - **Reorder**: Long-press and drag (optional)
@@ -282,7 +306,7 @@ term.onData(data => {
 
 ## File Structure
 
-```
+```text
 app/
 ├── src/main/
 │   ├── java/com/zelland/
@@ -331,6 +355,7 @@ app/
 ## Testing Strategy
 
 ### Overview
+
 Comprehensive testing across unit, integration, and UI layers ensures reliability and maintainability. Testing WebView-based components presents unique challenges that require specialized mocking and instrumentation strategies.
 
 ### Testing Frameworks & Dependencies
@@ -361,7 +386,7 @@ dependencies {
 
 ### Test Directory Structure
 
-```
+```text
 app/
 ├── src/
 │   ├── test/                          # Unit tests (JVM)
@@ -399,10 +424,13 @@ app/
 ### Milestone 1: Project Setup & Foundation
 
 #### Unit Tests
+
 **Not applicable** - This milestone focuses on project scaffolding and asset setup.
 
 #### Integration Tests
+
 **TerminalFragmentBasicTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class TerminalFragmentBasicTest {
@@ -460,6 +488,7 @@ class TerminalFragmentBasicTest {
 ```
 
 **Acceptance Criteria**:
+
 - WebView initializes with JavaScript enabled
 - Local HTML asset loads without errors
 - xterm.js library is accessible in JavaScript context
@@ -469,7 +498,9 @@ class TerminalFragmentBasicTest {
 ### Milestone 2: JavaScript Bridge & Input System
 
 #### Unit Tests
+
 **KeySequenceHelperTest.kt**
+
 ```kotlin
 class KeySequenceHelperTest {
     private lateinit var helper: KeySequenceHelper
@@ -526,6 +557,7 @@ class KeySequenceHelperTest {
 ```
 
 **ModifierStateTest.kt**
+
 ```kotlin
 class ModifierStateTest {
     @Test
@@ -561,7 +593,9 @@ class ModifierStateTest {
 ```
 
 #### Integration Tests
+
 **TerminalJavascriptInterfaceTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class TerminalJavascriptInterfaceTest {
@@ -641,6 +675,7 @@ class TerminalJavascriptInterfaceTest {
 ```
 
 **Acceptance Criteria**:
+
 - KeySequenceHelper correctly maps all control sequences
 - JavaScript interface methods are callable from both sides
 - Input escaping prevents JavaScript injection
@@ -650,10 +685,13 @@ class TerminalJavascriptInterfaceTest {
 ### Milestone 3: Custom Keyboard - ModBar
 
 #### Unit Tests
+
 **Not applicable** - ModBar logic is primarily UI-driven.
 
 #### Integration Tests
+
 **ModBarViewTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class ModBarViewTest {
@@ -761,6 +799,7 @@ class ModBarViewTest {
 ```
 
 **Acceptance Criteria**:
+
 - All buttons respond to clicks with visual feedback
 - Toggle buttons maintain state correctly
 - Direct action buttons send correct sequences
@@ -771,10 +810,13 @@ class ModBarViewTest {
 ### Milestone 4: Custom Keyboard - AlphaGrid
 
 #### Unit Tests
+
 **Not applicable** - AlphaGrid is UI-focused.
 
 #### Integration Tests
+
 **AlphaGridViewTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class AlphaGridViewTest {
@@ -866,6 +908,7 @@ class AlphaGridViewTest {
 ```
 
 **CustomKeyboardViewTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class CustomKeyboardViewTest {
@@ -929,6 +972,7 @@ class CustomKeyboardViewTest {
 ```
 
 **Acceptance Criteria**:
+
 - AlphaGrid visibility tied to modifier state
 - Animations are smooth and within timing bounds
 - Key combinations generate correct sequences
@@ -939,7 +983,9 @@ class CustomKeyboardViewTest {
 ### Milestone 5: Multi-Session Support with ViewPager2
 
 #### Unit Tests
+
 **TerminalViewModelTest.kt**
+
 ```kotlin
 class TerminalViewModelTest {
     @get:Rule
@@ -1030,6 +1076,7 @@ class TerminalViewModelTest {
 ```
 
 **TerminalSessionTest.kt**
+
 ```kotlin
 class TerminalSessionTest {
     @Test
@@ -1057,7 +1104,9 @@ class TerminalSessionTest {
 ```
 
 #### Integration Tests
+
 **MultiSessionTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class MultiSessionTest {
@@ -1185,6 +1234,7 @@ class MultiSessionTest {
 ```
 
 **Acceptance Criteria**:
+
 - ViewModel correctly manages session list
 - ViewPager2 adapter updates on session changes
 - Input routing works correctly for active session
@@ -1196,7 +1246,9 @@ class MultiSessionTest {
 ### Milestone 6: Polish & Optimization
 
 #### Unit Tests
+
 **SessionPersistenceTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class SessionPersistenceTest {
@@ -1272,7 +1324,9 @@ class SessionPersistenceTest {
 ```
 
 #### Integration Tests
+
 **PerformanceTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class PerformanceTest {
@@ -1364,6 +1418,7 @@ class PerformanceTest {
 ```
 
 **ConfigurationChangeTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 class ConfigurationChangeTest {
@@ -1444,6 +1499,7 @@ class ConfigurationChangeTest {
 ```
 
 **Acceptance Criteria**:
+
 - Sessions persist across app restarts
 - Configuration changes (rotation) preserve state
 - Performance targets met (startup, latency, FPS)
@@ -1454,7 +1510,9 @@ class ConfigurationChangeTest {
 ### Milestone 7 & 8: Advanced Features & Release
 
 #### Integration Tests
+
 **KeyboardToTerminalEndToEndTest.kt**
+
 ```kotlin
 @RunWith(AndroidJUnit4::class)
 @LargeTest
@@ -1537,6 +1595,7 @@ class KeyboardToTerminalEndToEndTest {
 ```
 
 **Acceptance Criteria**:
+
 - End-to-end workflows function correctly
 - All features integrate seamlessly
 - No regressions in core functionality
@@ -1546,6 +1605,7 @@ class KeyboardToTerminalEndToEndTest {
 ## Test Execution Strategy
 
 ### Continuous Integration
+
 ```yaml
 # .github/workflows/android-ci.yml
 name: Android CI
@@ -1576,17 +1636,20 @@ jobs:
 ```
 
 ### Coverage Goals
+
 - **Unit Tests**: 80%+ coverage for ViewModels, utilities, models
 - **Integration Tests**: 70%+ coverage for Fragments, Views, bridges
 - **UI Tests**: Critical user flows covered (modifier input, session switching)
 
 ### Test Execution Frequency
+
 - **Unit tests**: Every commit (fast, < 30 seconds)
 - **Integration tests**: Every PR (medium, ~2-5 minutes)
 - **Performance tests**: Nightly builds
 - **Manual tests**: Before each release
 
 ### Debugging Failed Tests
+
 ```kotlin
 // Enable verbose logging in test builds
 adb shell setprop log.tag.TerminalApp DEBUG
@@ -1598,7 +1661,9 @@ val screenshotRule = ScreenshotTestRule()
 ```
 
 ### Mocking Strategy for WebView
+
 Since WebView cannot be easily mocked, we use:
+
 1. **Real WebView in instrumentation tests** (device/emulator required)
 2. **Robolectric for unit tests** (simulated WebView on JVM)
 3. **Test doubles for ViewModel logic** (mock terminal interface)

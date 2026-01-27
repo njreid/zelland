@@ -9,6 +9,7 @@ Get Zelland running in 5 minutes!
 - **SSH server** with access credentials (for testing)
 
 Optional:
+
 - Remote server with [Zellij 0.43.0+](https://zellij.dev) installed
 
 ## Step 1: Open Project
@@ -22,7 +23,8 @@ cd /home/njr/code/zelland
 ```
 
 Open in Android Studio:
-```
+
+```text
 File → Open → Select project directory
 ```
 
@@ -57,7 +59,8 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 2. **Tap "Add Session" (+)**
 
 3. **Fill SSH Configuration Form**:
-   ```
+
+   ```text
    Connection Name: My Server
    Host:            your-server.com
    Port:            22
@@ -107,7 +110,7 @@ You can proceed to Milestone 2 and test SSH + Zellij integration together.
 
 ## Project Structure Overview
 
-```
+```text
 zelland/
 ├── app/src/main/java/com/zelland/
 │   ├── MainActivity.kt              # Main activity
@@ -158,6 +161,7 @@ See [CHANGES_ZELLIJ.md](CHANGES_ZELLIJ.md) for complete roadmap.
 ### Build Fails: "SSHJ not found"
 
 **Solution**: Gradle sync may have failed. Try:
+
 ```bash
 ./gradlew clean
 ./gradlew build --refresh-dependencies
@@ -166,23 +170,27 @@ See [CHANGES_ZELLIJ.md](CHANGES_ZELLIJ.md) for complete roadmap.
 ### App Crashes on Launch
 
 **Solution**: Check logcat for errors:
+
 ```bash
 adb logcat -s AndroidRuntime:E
 ```
 
 Common causes:
+
 - Missing dependencies (check build.gradle.kts)
 - API level incompatibility (need API 24+)
 
 ### "Connection failed" Even With Correct Credentials
 
 **Possible causes**:
+
 1. **Network**: Android emulator uses `10.0.2.2` for host machine localhost
 2. **Firewall**: SSH port (22) may be blocked
 3. **Server**: SSH server not running or not accepting connections
 4. **Auth**: Wrong username/password/key
 
 **Debug**:
+
 ```bash
 # Test from command line first
 ssh username@your-server.com
@@ -194,6 +202,7 @@ adb shell ping your-server.com
 ### Permission Denied
 
 **Solution**: Ensure INTERNET permission in AndroidManifest.xml:
+
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
 ```
@@ -201,6 +210,7 @@ adb shell ping your-server.com
 ## Debugging Tips
 
 ### View Logs
+
 ```bash
 # All app logs
 adb logcat -s Zelland:D
@@ -215,6 +225,7 @@ adb logcat -c
 ### Breakpoint Debugging
 
 In Android Studio:
+
 1. Set breakpoint in `SSHConnectionManager.connect()`
 2. Run in debug mode (🐛)
 3. Tap "Test Connection" in app
@@ -230,6 +241,7 @@ In Android Studio:
    - [CHANGES_ZELLIJ.md](CHANGES_ZELLIJ.md) - Milestone 2
 
 3. **Set up Zellij**:
+
    ```bash
    # On your SSH server:
    curl -L zellij.dev/install.sh | bash
@@ -245,6 +257,7 @@ In Android Studio:
 ## Success! 🎉
 
 If you can:
+
 - ✅ Build the app
 - ✅ Run it on device/emulator
 - ✅ Open SSH config dialog

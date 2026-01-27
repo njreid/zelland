@@ -38,11 +38,14 @@ class DaemonConnectionManager(
 
         setupUnsafeSsl(clientBuilder)
 
-        client = clientBuilder.build()
+        val client = clientBuilder.build()
 
-        val protocol = "wss"
+        val protocol = "ws"
+        val url = "$protocol://$host:$port/ws"
+        Log.i(tag, "Connecting to Daemon WebSocket: $url")
+
         val requestBuilder = Request.Builder()
-            .url("$protocol://$host:$port/ws")
+            .url(url)
 
         psk?.let {
             requestBuilder.addHeader("X-Zelland-PSK", it)
@@ -50,7 +53,7 @@ class DaemonConnectionManager(
 
         webSocket = client?.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.i(tag, "WebSocket opened")
+                Log.i(tag, "WebSocket opened successfully to $url")
                 listener.onStatusChanged(true)
             }
 
@@ -59,34 +62,38 @@ class DaemonConnectionManager(
                     val envelope = Envelope.parseFrom(bytes.toByteArray())
                     handleEnvelope(envelope)
                 } catch (e: Exception) {
-                    Log.e(tag, "Failed to parse protobuf", e)
+                    Log.e(tag, "Failed to parse protobuf from $url", e)
                 }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.i(tag, "WebSocket closing: $reason")
+                Log.i(tag, "WebSocket closing ($url): $reason")
                 listener.onStatusChanged(false)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(tag, "WebSocket failure: ${t.message}")
+                Log.e(tag, "WebSocket failure ($url): ${t.message}")
                 listener.onError(t.message ?: "Unknown error")
                 listener.onStatusChanged(false)
                 this@DaemonConnectionManager.webSocket = null
                 
                 // Attempt reconnect if not explicitly closing
                 if (!isClosing) {
-                    Log.i(tag, "Attempting to reconnect in 5 seconds...")
+                    Log.i(tag, "Attempting to reconnect to $url in 5 seconds...")
                     // Using a simple delay for now, in a real app we might use a handler or coroutine
                     Thread {
-                        Thread.sleep(5000)
-                        if (!isClosing) connect()
+                        try {
+                            Thread.sleep(5000)
+                            if (!isClosing) connect()
+                        } catch (e: InterruptedException) {
+                            Log.e(tag, "Reconnect thread interrupted", e)
+                        }
                     }.start()
                 }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.i(tag, "WebSocket closed")
+                Log.i(tag, "WebSocket closed ($url)")
                 listener.onStatusChanged(false)
                 this@DaemonConnectionManager.webSocket = null
             }

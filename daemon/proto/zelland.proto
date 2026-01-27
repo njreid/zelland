@@ -3,6 +3,8 @@ syntax = "proto3";
 package zelland;
 
 option go_package = "github.com/zelland/daemon/proto/zelland";
+option java_package = "com.zelland.proto";
+option java_multiple_files = true;
 
 // Wrapper for all WebSocket messages
 message Envelope {
@@ -52,6 +54,10 @@ message AnnotationData {
 }
 
 message ClientStatus {
-  bool active = 1;
-  string device_name = 2;
+  enum ViewState {
+    TERMINAL = 0;
+    VIEWER = 1;
+  }
+  ViewState state = 1;
+  string active_asset_id = 2;
 }

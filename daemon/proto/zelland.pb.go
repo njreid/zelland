@@ -122,6 +122,52 @@ func (AnnotationAction_ActionType) EnumDescriptor() ([]byte, []int) {
 	return file_proto_zelland_proto_rawDescGZIP(), []int{3, 0}
 }
 
+type ClientStatus_ViewState int32
+
+const (
+	ClientStatus_TERMINAL ClientStatus_ViewState = 0
+	ClientStatus_VIEWER   ClientStatus_ViewState = 1
+)
+
+// Enum value maps for ClientStatus_ViewState.
+var (
+	ClientStatus_ViewState_name = map[int32]string{
+		0: "TERMINAL",
+		1: "VIEWER",
+	}
+	ClientStatus_ViewState_value = map[string]int32{
+		"TERMINAL": 0,
+		"VIEWER":   1,
+	}
+)
+
+func (x ClientStatus_ViewState) Enum() *ClientStatus_ViewState {
+	p := new(ClientStatus_ViewState)
+	*p = x
+	return p
+}
+
+func (x ClientStatus_ViewState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ClientStatus_ViewState) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_zelland_proto_enumTypes[2].Descriptor()
+}
+
+func (ClientStatus_ViewState) Type() protoreflect.EnumType {
+	return &file_proto_zelland_proto_enumTypes[2]
+}
+
+func (x ClientStatus_ViewState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ClientStatus_ViewState.Descriptor instead.
+func (ClientStatus_ViewState) EnumDescriptor() ([]byte, []int) {
+	return file_proto_zelland_proto_rawDescGZIP(), []int{5, 0}
+}
+
 // Wrapper for all WebSocket messages
 type Envelope struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -487,8 +533,8 @@ func (x *AnnotationData) GetTimestamp() int64 {
 
 type ClientStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Active        bool                   `protobuf:"varint,1,opt,name=active,proto3" json:"active,omitempty"`
-	DeviceName    string                 `protobuf:"bytes,2,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"`
+	State         ClientStatus_ViewState `protobuf:"varint,1,opt,name=state,proto3,enum=zelland.ClientStatus_ViewState" json:"state,omitempty"`
+	ActiveAssetId string                 `protobuf:"bytes,2,opt,name=active_asset_id,json=activeAssetId,proto3" json:"active_asset_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -523,16 +569,16 @@ func (*ClientStatus) Descriptor() ([]byte, []int) {
 	return file_proto_zelland_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *ClientStatus) GetActive() bool {
+func (x *ClientStatus) GetState() ClientStatus_ViewState {
 	if x != nil {
-		return x.Active
+		return x.State
 	}
-	return false
+	return ClientStatus_TERMINAL
 }
 
-func (x *ClientStatus) GetDeviceName() string {
+func (x *ClientStatus) GetActiveAssetId() string {
 	if x != nil {
-		return x.DeviceName
+		return x.ActiveAssetId
 	}
 	return ""
 }
@@ -580,11 +626,15 @@ const file_proto_zelland_proto_rawDesc = "" +
 	"targetText\x12!\n" +
 	"\fcontext_hash\x18\x03 \x01(\tR\vcontextHash\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x1c\n" +
-	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"G\n" +
-	"\fClientStatus\x12\x16\n" +
-	"\x06active\x18\x01 \x01(\bR\x06active\x12\x1f\n" +
-	"\vdevice_name\x18\x02 \x01(\tR\n" +
-	"deviceNameB)Z'github.com/zelland/daemon/proto/zellandb\x06proto3"
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"\x94\x01\n" +
+	"\fClientStatus\x125\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x1f.zelland.ClientStatus.ViewStateR\x05state\x12&\n" +
+	"\x0factive_asset_id\x18\x02 \x01(\tR\ractiveAssetId\"%\n" +
+	"\tViewState\x12\f\n" +
+	"\bTERMINAL\x10\x00\x12\n" +
+	"\n" +
+	"\x06VIEWER\x10\x01B>\n" +
+	"\x11com.zelland.protoP\x01Z'github.com/zelland/daemon/proto/zellandb\x06proto3"
 
 var (
 	file_proto_zelland_proto_rawDescOnce sync.Once
@@ -598,31 +648,33 @@ func file_proto_zelland_proto_rawDescGZIP() []byte {
 	return file_proto_zelland_proto_rawDescData
 }
 
-var file_proto_zelland_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_proto_zelland_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_proto_zelland_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_proto_zelland_proto_goTypes = []any{
 	(OpenViewRequest_FileType)(0),    // 0: zelland.OpenViewRequest.FileType
 	(AnnotationAction_ActionType)(0), // 1: zelland.AnnotationAction.ActionType
-	(*Envelope)(nil),                 // 2: zelland.Envelope
-	(*KeepAlive)(nil),                // 3: zelland.KeepAlive
-	(*OpenViewRequest)(nil),          // 4: zelland.OpenViewRequest
-	(*AnnotationAction)(nil),         // 5: zelland.AnnotationAction
-	(*AnnotationData)(nil),           // 6: zelland.AnnotationData
-	(*ClientStatus)(nil),             // 7: zelland.ClientStatus
+	(ClientStatus_ViewState)(0),      // 2: zelland.ClientStatus.ViewState
+	(*Envelope)(nil),                 // 3: zelland.Envelope
+	(*KeepAlive)(nil),                // 4: zelland.KeepAlive
+	(*OpenViewRequest)(nil),          // 5: zelland.OpenViewRequest
+	(*AnnotationAction)(nil),         // 6: zelland.AnnotationAction
+	(*AnnotationData)(nil),           // 7: zelland.AnnotationData
+	(*ClientStatus)(nil),             // 8: zelland.ClientStatus
 }
 var file_proto_zelland_proto_depIdxs = []int32{
-	3, // 0: zelland.Envelope.ping:type_name -> zelland.KeepAlive
-	4, // 1: zelland.Envelope.open_view:type_name -> zelland.OpenViewRequest
-	5, // 2: zelland.Envelope.annotation:type_name -> zelland.AnnotationAction
-	7, // 3: zelland.Envelope.status:type_name -> zelland.ClientStatus
+	4, // 0: zelland.Envelope.ping:type_name -> zelland.KeepAlive
+	5, // 1: zelland.Envelope.open_view:type_name -> zelland.OpenViewRequest
+	6, // 2: zelland.Envelope.annotation:type_name -> zelland.AnnotationAction
+	8, // 3: zelland.Envelope.status:type_name -> zelland.ClientStatus
 	0, // 4: zelland.OpenViewRequest.file_type:type_name -> zelland.OpenViewRequest.FileType
 	1, // 5: zelland.AnnotationAction.type:type_name -> zelland.AnnotationAction.ActionType
-	6, // 6: zelland.AnnotationAction.data:type_name -> zelland.AnnotationData
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	7, // 6: zelland.AnnotationAction.data:type_name -> zelland.AnnotationData
+	2, // 7: zelland.ClientStatus.state:type_name -> zelland.ClientStatus.ViewState
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_zelland_proto_init() }
@@ -641,7 +693,7 @@ func file_proto_zelland_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_zelland_proto_rawDesc), len(file_proto_zelland_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,

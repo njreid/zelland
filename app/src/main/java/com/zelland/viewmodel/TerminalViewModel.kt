@@ -136,7 +136,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         // Adjust active index if needed
         val activeIndex = _activeSessionIndex.value ?: 0
         if (activeIndex >= currentSessions.size && currentSessions.isNotEmpty()) {
-            _activeSessionIndex.value = currentSessions.size - 1
+            _activeSessionIndex.postValue(currentSessions.size - 1)
         }
         
         saveSessions(currentSessions)
@@ -164,10 +164,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             // Build URL with session name as route
             val url = "https://$host:$port/${session.zellijSessionName}" 
             
-            android.util.Log.i("TerminalViewModel", "Connecting to $url")
+            Log.i("TerminalViewModel", "Connecting to Terminal: $url")
 
             if (checkDirectConnection(url)) {
-                android.util.Log.i("TerminalViewModel", "Connection successful")
+                Log.i("TerminalViewModel", "Terminal connection successful")
                 updateSession(session.copy(
                     isConnected = true,
                     localUrl = url,
@@ -176,22 +176,24 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 _connectionStatus.postValue(ConnectionStatus.Connected("Connected to ${session.title}"))
 
                 // Also connect to the companion daemon
+                Log.i("TerminalViewModel", "Attempting Daemon connection to $host:${session.sshConfig.daemonPort}")
                 connectToDaemon(sessionId, host, session.sshConfig.daemonPort, session.sshConfig.daemonPsk)
 
             } else {
-                android.util.Log.e("TerminalViewModel", "Connection failed")
+                Log.e("TerminalViewModel", "Terminal connection failed for $url")
                 _connectionStatus.postValue(ConnectionStatus.Error("Could not reach server at $url"))
             }
         }
     }
 
     private fun connectToDaemon(sessionId: String, host: String, port: Int, psk: String?) {
-        val manager = DaemonConnectionManager(host, port, psk, object : DaemonConnectionManager.DaemonListener {
+        val effectivePort = if (port > 0) port else 8083
+        val manager = DaemonConnectionManager(host, effectivePort, psk, object : DaemonConnectionManager.DaemonListener {
             override fun onMessageReceived(envelope: Envelope) {
                 Log.i("TerminalViewModel", "Received daemon message: ${envelope.payloadCase}")
                 when (envelope.payloadCase) {
                     Envelope.PayloadCase.OPEN_VIEW -> {
-                        handleOpenView(sessionId, host, port, envelope.openView)
+                        handleOpenView(sessionId, host, effectivePort, envelope.openView)
                     }
                     else -> {}
                 }
@@ -208,7 +210,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             }
 
             override fun onError(error: String) {
-                Log.e("TerminalViewModel", "Daemon error: $error")
+                Log.e("TerminalViewModel", "Daemon error for session $sessionId: $error")
             }
         })
         daemonManagers[sessionId] = manager
@@ -230,7 +232,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             val fullUrl = if (request.url.startsWith("http")) {
                 request.url
             } else {
-                "https://$host:$daemonPort${if (request.url.startsWith("/")) "" else "/"}${request.url}"
+                // Ensure host is correct for viewer too
+                "http://$host:$daemonPort${if (request.url.startsWith("/")) "" else "/"}${request.url}"
             }
 
             val viewData = TerminalSession.OpenViewData(
@@ -276,30 +279,32 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private suspend fun checkDirectConnection(urlStr: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val url = URL(urlStr)
-            val connection = url.openConnection() as HttpsURLConnection
-            connection.requestMethod = "HEAD"
+            val connection = url.openConnection()
+            
+            if (connection is HttpsURLConnection) {
+                // Trust all certificates for development/self-signed certs
+                val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
+                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate>? = null
+                    override fun checkClientTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) {}
+                    override fun checkServerTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) {}
+                })
+                
+                val sc = javax.net.ssl.SSLContext.getInstance("SSL")
+                sc.init(null, trustAllCerts, java.security.SecureRandom())
+                connection.sslSocketFactory = sc.socketFactory
+                connection.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+            }
+            
             connection.connectTimeout = 2000 // 2 seconds timeout
             connection.readTimeout = 2000
             
-            // Trust all certificates for development/self-signed certs
-            val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
-                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate>? = null
-                override fun checkClientTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) {}
-                override fun checkServerTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) {}
-            })
-            
-            val sc = javax.net.ssl.SSLContext.getInstance("SSL")
-            sc.init(null, trustAllCerts, java.security.SecureRandom())
-            connection.sslSocketFactory = sc.socketFactory
-            connection.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
-            
-            val responseCode = connection.responseCode
-            android.util.Log.d("TerminalViewModel", "Direct connection check: $responseCode")
+            val responseCode = if (connection is HttpsURLConnection) connection.responseCode else (connection as HttpURLConnection).responseCode
+            Log.d("TerminalViewModel", "Direct connection check ($urlStr): $responseCode")
             
             // 200 OK or 401/403 (means it's there but needs auth)
             responseCode in 200..399 || responseCode == 401 || responseCode == 403
         } catch (e: Exception) {
-            android.util.Log.d("TerminalViewModel", "Direct connection check failed: ${e.message}")
+            Log.d("TerminalViewModel", "Direct connection check failed for $urlStr: ${e.message}")
             false
         }
     }

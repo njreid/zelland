@@ -26,7 +26,7 @@ func main() {
 		cfg.Port = *port
 	}
 
-	srv := server.New(cfg.Port)
+	srv := server.New(cfg.Port, cfg.CertFile, cfg.KeyFile)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
