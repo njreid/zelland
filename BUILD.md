@@ -4,7 +4,7 @@
 
 - **Android Studio**: Hedgehog (2023.1.1) or later
 - **JDK**: Java 17 or later
-- **Android SDK**: API 34 (compile), API 24+ (minimum)
+- **Android SDK**: API 36 (compile), API 24+ (minimum)
 - **Gradle**: 8.2.0 (included via wrapper)
 
 ## Quick Start
