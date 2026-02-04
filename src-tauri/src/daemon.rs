@@ -3,7 +3,7 @@ pub mod proto {
 }
 
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures_util::{StreamExt, SinkExt};
+use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter};
 use crate::daemon::proto::Envelope;
 use prost::Message as _;
@@ -21,7 +21,7 @@ impl DaemonManager {
         let (ws_stream, _) = connect_async(url).await
             .map_err(|e| format!("WebSocket connection failed: {}", e))?;
 
-        let (mut _write, mut read) = ws_stream.split();
+        let (_, mut read) = ws_stream.split();
         let app_handle = self.app_handle.clone();
 
         tokio::spawn(async move {

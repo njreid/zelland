@@ -44,7 +44,41 @@
         {#each sessionStore.tabs as tab, i}
             <div class="absolute inset-0 {sessionStore.activeTabIndex === i ? 'block' : 'hidden'}">
                 {#if tab.type === 'terminal'}
-                    <TerminalComponent tabId={tab.id} data={tab.data} />
+                    {#if !tab.data.connected}
+                        <div class="flex flex-col items-center justify-center h-full p-6 space-y-4 bg-[#1a1b26]">
+                            <h2 class="text-xl font-bold text-[#7aa2f7]">Connect to Remote Host</h2>
+                            <div class="w-full max-w-sm space-y-2">
+                                <input type="text" placeholder="Host (e.g. 192.168.1.5)" class="w-full px-4 py-2 rounded bg-[#24283b] border border-[#414868] outline-none focus:border-[#7aa2f7]" bind:value={tab.data.host} />
+                                <input type="text" placeholder="Username" class="w-full px-4 py-2 rounded bg-[#24283b] border border-[#414868] outline-none focus:border-[#7aa2f7]" bind:value={tab.data.username} />
+                                <input type="password" placeholder="Password" class="w-full px-4 py-2 rounded bg-[#24283b] border border-[#414868] outline-none focus:border-[#7aa2f7]" bind:value={tab.data.password} />
+                                <button 
+                                    class="w-full py-2 mt-4 rounded bg-[#7aa2f7] text-[#1a1b26] font-bold active:opacity-80"
+                                    onclick={async () => {
+                                        try {
+                                            await invoke('ssh_connect', { 
+                                                config: {
+                                                    host: tab.data.host,
+                                                    port: 22,
+                                                    username: tab.data.username,
+                                                    auth_method: 'Password',
+                                                    password: tab.data.password,
+                                                    private_key_path: null,
+                                                    private_key_passphrase: null
+                                                } 
+                                            });
+                                            tab.data.connected = true;
+                                        } catch (e) {
+                                            alert('Connection failed: ' + e);
+                                        }
+                                    }}
+                                >
+                                    Connect
+                                </button>
+                            </div>
+                        </div>
+                    {:else}
+                        <TerminalComponent tabId={tab.id} data={tab.data} />
+                    {/if}
                 {:else}
                     <div class="flex items-center justify-center h-full">
                         Viewer for {tab.title}

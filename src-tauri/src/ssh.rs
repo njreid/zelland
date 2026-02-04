@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use russh::*;
-use russh_keys::*;
+use russh::client::AuthResult;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use std::net::ToSocketAddrs;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum AuthMethod {
@@ -43,7 +42,6 @@ impl SshManager {
         let mut session_guard = self.session.lock().await;
         
         let client_config = client::Config {
-            connection_timeout: Some(std::time::Duration::from_secs(30)),
             ..Default::default()
         };
         let client_config = Arc::new(client_config);
@@ -56,22 +54,26 @@ impl SshManager {
         let auth_res = match config.auth_method {
             AuthMethod::Password => {
                 let password = config.password.clone().ok_or("Password is required")?;
-                session.auth_password(&config.username, &password).await
+                session.authenticate_password(&config.username, &password).await
             }
             AuthMethod::PrivateKey => {
-                // TODO: Implement private key auth
-                Err(russh::Error::msg("Private key auth not implemented yet"))
+                return Err("Private key auth not implemented yet".to_string());
             }
         };
 
         match auth_res {
-            Ok(true) => {
+            Ok(AuthResult::Success) => {
                 *session_guard = Some(session);
                 Ok(())
             }
-            Ok(false) => Err("Authentication failed".to_string()),
+            Ok(_) => Err("Authentication failed".to_string()),
             Err(e) => Err(format!("Authentication error: {}", e)),
         }
+    }
+
+    pub async fn disconnect(&self) {
+        let mut session_guard = self.session.lock().await;
+        *session_guard = None;
     }
 
     pub async fn execute_command(&self, command: String) -> Result<String, String> {
@@ -81,7 +83,7 @@ impl SshManager {
         let mut channel = session.channel_open_session().await
             .map_err(|e| format!("Failed to open channel: {}", e))?;
 
-        channel.exec(true, &command).await
+        channel.exec(true, command).await
             .map_err(|e| format!("Failed to execute command: {}", e))?;
 
         let mut output = String::new();
@@ -97,14 +99,5 @@ impl SshManager {
         }
 
         Ok(output)
-    }
-
-    pub async fn disconnect(&self) {
-        let mut session_guard = self.session.lock().await;
-        *session_guard = None;
-    }
-
-    pub async fn is_connected(&self) -> bool {
-        self.session.lock().await.is_some()
     }
 }

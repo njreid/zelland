@@ -28,25 +28,25 @@ This document tracks the migration of Zelland from a native Android application 
 - [x] **Event System**: Setup Rust-to-Frontend event emission (e.g., `ssh-output`, `open-tab`).
 
 ### Phase 3: Android Integrations (Mobile Features)
-- [ ] **Intent Handling (Shared URLs)**:
+- [x] **Intent Handling (Shared URLs)**:
     - [x] Update `AndroidManifest.xml` with `ACTION_SEND` intent filter.
     - [x] Create Kotlin Plugin (`IntentPlugin.kt`) to intercept `onNewIntent`. (Implemented in MainActivity.kt)
     - [x] Emit `intent://received` event to Tauri.
-- [ ] **Platform Notifications**:
+- [x] **Platform Notifications**:
     - [x] Integrate `tauri-plugin-notification`.
     - [ ] Wire Daemon "Notification" Protobuf messages to system notifications.
 
 ### Phase 4: Frontend & UI (Svelte 5)
 - [x] **State Management**:
-    - Create `src/lib/stores/session.svelte.ts` using Runes for Tab/Session state.
+    - [x] Create `src/lib/stores/session.svelte.ts` using Runes for Tab/Session state.
 - [x] **Terminal Component**:
-    - Build `Terminal.svelte` wrapping `xterm.js`.
-    - Implement `ResizeObserver` and `xterm-addon-fit`.
+    - [x] Build `Terminal.svelte` wrapping `xterm.js`.
+    - [x] Implement `ResizeObserver` and `xterm-addon-fit`.
 - [x] **Virtual Keyboard**:
-    - Port `KeySequenceHelper.kt` logic to TypeScript (`key-mapper.ts`).
-    - Build `VirtualKeyboard.svelte` (ModBar + AlphaGrid) with CSS transitions.
+    - [x] Port `KeySequenceHelper.kt` logic to TypeScript (`key-mapper.ts`).
+    - [x] Build `VirtualKeyboard.svelte` (ModBar + AlphaGrid) with CSS transitions.
 - [x] **Main Layout**:
-    - Implement SPA Tab View (Swipeable tabs for Terminal/Viewer).
+    - [x] Implement SPA Tab View (Swipeable tabs for Terminal/Viewer).
 - [ ] **Viewer Component**:
     - Create `Viewer.svelte` for Images/Markdown.
 

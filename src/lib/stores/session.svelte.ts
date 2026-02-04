@@ -17,11 +17,19 @@ class SessionStore {
             id: 'initial',
             title: 'Terminal 1',
             type: 'terminal',
-            data: {}
+            data: {
+                host: '',
+                username: '',
+                password: '',
+                connected: false
+            }
         });
     }
 
     addTab(tab: Tab) {
+        if (tab.type === 'terminal' && !tab.data) {
+            tab.data = { host: '', username: '', password: '', connected: false };
+        }
         this.tabs.push(tab);
         this.activeTabIndex = this.tabs.length - 1;
     }
