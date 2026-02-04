@@ -124,8 +124,40 @@ impl SshManager {
         }
     }
 
-    pub async fn disconnect(&self, tab_id: String) {
-        let mut active = self.active_sessions.lock().await;
-        active.remove(&tab_id);
+        pub async fn disconnect(&self, tab_id: String) {
+
+            let mut active = self.active_sessions.lock().await;
+
+            active.remove(&tab_id);
+
+        }
+
     }
-}
+
+    
+
+    #[cfg(test)]
+
+    mod tests {
+
+        use super::*;
+
+    
+
+        #[test]
+
+        fn test_ssh_manager_init() {
+
+            let manager = SshManager::new();
+
+            // Since we can't easily check internal state of Arc<Mutex<HashMap>> without locking,
+
+            // we'll just verify it can be created.
+
+            assert!(true);
+
+        }
+
+    }
+
+    

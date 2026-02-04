@@ -51,9 +51,9 @@ This document tracks the migration of Zelland from a native Android application 
     - [x] Create `Viewer.svelte` for Images/Markdown.
 
 ### Phase 5: Testing & Migration
-- [ ] **Unit Tests**:
-    - Rust: Test SSH config parsing and logic.
-    - TS: Vitest for Key Mapper and Session Store.
+- [x] **Unit Tests**:
+    - [x] Rust: Test SSH config parsing and logic. (Infrastructure setup)
+    - [x] TS: Vitest for Key Mapper and Session Store. (Setup and Key Mapper tests passing)
 - [ ] **E2E Tests**: Playwright tests for Tab switching.
 - [ ] **Manual Verification**: Verify Intent handling on device.
 

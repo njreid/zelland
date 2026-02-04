@@ -18,8 +18,8 @@ export function getControlSequence(key: string, modifiers: ModifierState): strin
 
 export const SPECIAL_KEYS = {
     ESC: '\x1b',
-    TAB: '	',
-    ENTER: '',
+    TAB: '\t',
+    ENTER: '\r',
     UP: '\x1b[A',
     DOWN: '\x1b[B',
     LEFT: '\x1b[D',

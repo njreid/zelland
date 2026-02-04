@@ -1,0 +1,54 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  dev:
+    desc: Run the app in development mode (Desktop)
+    cmds:
+      - npm run tauri dev
+
+  dev:android:
+    desc: Run the app in development mode (Android)
+    cmds:
+      - npm run tauri android dev
+
+  build:linux:
+    desc: Build the app for Linux (Production)
+    cmds:
+      - npm run tauri build
+
+  build:android:
+    desc: Build the app for Android (Production APK)
+    cmds:
+      - npm run tauri android build
+
+  build:
+    desc: Build for all platforms (Linux + Android)
+    cmds:
+      - task: build:linux
+      - task: build:android
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf src-tauri/target
+      - rm -rf build
+      - rm -rf src-tauri/gen
+      - echo "✓ Build artifacts cleaned"
+
+  clean:all:
+    desc: Deep clean (artifacts + node_modules)
+    cmds:
+      - task: clean
+      - rm -rf node_modules
+      - echo "✓ All dependencies and artifacts cleaned"
+
+  test:
+    desc: Run tests
+    cmds:
+      - npm run test
+      - cd src-tauri && cargo test
