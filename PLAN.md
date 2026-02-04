@@ -10,43 +10,44 @@ This document tracks the migration of Zelland from a native Android application 
 ## Milestones
 
 ### Phase 1: Scaffolding & Setup
-- [ ] **Archive Legacy Code**: Move existing Android code to `legacy_android/` to clear root for Tauri.
-- [ ] **Initialize Tauri Project**: Scaffold new project with Svelte 5 + TypeScript.
-- [ ] **Configure Mobile**: Run `tauri android init` and configure capabilities.
-- [ ] **Install Dependencies**:
+- [x] **Archive Legacy Code**: Move existing Android code to `legacy_android/` to clear root for Tauri.
+- [x] **Initialize Tauri Project**: Scaffold new project with Svelte 5 + TypeScript.
+- [x] **Configure Mobile**: Run `tauri android init` and configure capabilities.
+- [x] **Install Dependencies**:
     - Rust: `russh`, `tokio`, `prost`, `tauri-plugin-notification`, `tauri-plugin-store`.
     - JS: `xterm`, `xterm-addon-fit`, `svelte`, `tailwindcss`, `lucide-svelte`.
-- [ ] **Setup Directory Structure**: Establish `src-tauri/` and `src/` layout.
+- [x] **Setup Directory Structure**: Establish `src-tauri/` and `src/` layout.
 
 ### Phase 2: Core Logic (Rust Backend)
-- [ ] **Port SSH Manager**: Create `src-tauri/src/ssh.rs` replacing `SSHConnectionManager.kt`.
+- [x] **Port SSH Manager**: Create `src-tauri/src/ssh.rs` replacing `SSHConnectionManager.kt`.
     - Implement `connect`, `disconnect`, `exec`.
-    - Implement PTY allocation for interactive sessions.
-- [ ] **Implement Daemon Bridge**: Create `src-tauri/src/daemon.rs`.
+    - [ ] Implement PTY allocation for interactive sessions.
+- [x] **Implement Daemon Bridge**: Create `src-tauri/src/daemon.rs`.
     - WebSocket client (`tokio-tungstenite`) to talk to `zellandd`.
     - Protobuf parsing (`prost`) for `zelland.proto`.
-- [ ] **Event System**: Setup Rust-to-Frontend event emission (e.g., `ssh-output`, `open-tab`).
+- [x] **Event System**: Setup Rust-to-Frontend event emission (e.g., `ssh-output`, `open-tab`).
 
 ### Phase 3: Android Integrations (Mobile Features)
 - [ ] **Intent Handling (Shared URLs)**:
-    - Update `AndroidManifest.xml` with `ACTION_SEND` intent filter.
-    - Create Kotlin Plugin (`IntentPlugin.kt`) to intercept `onNewIntent`.
-    - Emit `intent://received` event to Tauri.
+    - [x] Update `AndroidManifest.xml` with `ACTION_SEND` intent filter.
+    - [x] Create Kotlin Plugin (`IntentPlugin.kt`) to intercept `onNewIntent`. (Implemented in MainActivity.kt)
+    - [x] Emit `intent://received` event to Tauri.
 - [ ] **Platform Notifications**:
-    - Integrate `tauri-plugin-notification`.
-    - Wire Daemon "Notification" Protobuf messages to system notifications.
+    - [x] Integrate `tauri-plugin-notification`.
+    - [ ] Wire Daemon "Notification" Protobuf messages to system notifications.
 
 ### Phase 4: Frontend & UI (Svelte 5)
-- [ ] **State Management**:
+- [x] **State Management**:
     - Create `src/lib/stores/session.svelte.ts` using Runes for Tab/Session state.
-- [ ] **Terminal Component**:
+- [x] **Terminal Component**:
     - Build `Terminal.svelte` wrapping `xterm.js`.
     - Implement `ResizeObserver` and `xterm-addon-fit`.
-- [ ] **Virtual Keyboard**:
+- [x] **Virtual Keyboard**:
     - Port `KeySequenceHelper.kt` logic to TypeScript (`key-mapper.ts`).
     - Build `VirtualKeyboard.svelte` (ModBar + AlphaGrid) with CSS transitions.
-- [ ] **Main Layout**:
+- [x] **Main Layout**:
     - Implement SPA Tab View (Swipeable tabs for Terminal/Viewer).
+- [ ] **Viewer Component**:
     - Create `Viewer.svelte` for Images/Markdown.
 
 ### Phase 5: Testing & Migration

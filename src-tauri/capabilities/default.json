@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/capability.json",
+  "identifier": "default",
+  "description": "Default capability for the main window",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "shell:default",
+    "process:default",
+    "notification:default",
+    "store:default",
+    "haptics:default"
+  ]
+}
