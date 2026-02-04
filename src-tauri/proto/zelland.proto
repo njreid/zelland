@@ -13,7 +13,13 @@ message Envelope {
     OpenViewRequest open_view = 2;
     AnnotationAction annotation = 3;
     ClientStatus status = 4;
+    Notification notification = 5;
   }
+}
+
+message Notification {
+  string title = 1;
+  string body = 2;
 }
 
 message KeepAlive {

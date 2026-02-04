@@ -1,3 +1,5 @@
+import { load } from '@tauri-apps/plugin-store';
+
 export type TabType = 'terminal' | 'viewer';
 
 export interface Tab {
@@ -10,20 +12,42 @@ export interface Tab {
 class SessionStore {
     tabs = $state<Tab[]>([]);
     activeTabIndex = $state(0);
+    private store: any;
 
     constructor() {
-        // Initial tab
-        this.addTab({
-            id: 'initial',
-            title: 'Terminal 1',
-            type: 'terminal',
-            data: {
-                host: '',
-                username: '',
-                password: '',
-                connected: false
+        this.init();
+    }
+
+    async init() {
+        try {
+            this.store = await load('settings.json', { autoSave: true });
+            const savedTabs = await this.store.get('tabs');
+            if (savedTabs && Array.isArray(savedTabs)) {
+                this.tabs = savedTabs;
+            } else {
+                this.addTab({
+                    id: 'initial',
+                    title: 'Terminal 1',
+                    type: 'terminal',
+                    data: { host: '', username: '', password: '', connected: false }
+                });
             }
-        });
+        } catch (e) {
+            console.error('Failed to load store:', e);
+            // Fallback
+            this.tabs = [{
+                id: 'initial',
+                title: 'Terminal 1',
+                type: 'terminal',
+                data: { host: '', username: '', password: '', connected: false }
+            }];
+        }
+    }
+
+    async save() {
+        if (this.store) {
+            await this.store.set('tabs', Array.from(this.tabs));
+        }
     }
 
     addTab(tab: Tab) {
@@ -32,6 +56,7 @@ class SessionStore {
         }
         this.tabs.push(tab);
         this.activeTabIndex = this.tabs.length - 1;
+        this.save();
     }
 
     closeTab(id: string) {
@@ -43,6 +68,7 @@ class SessionStore {
             if (this.activeTabIndex >= this.tabs.length) {
                 this.activeTabIndex = this.tabs.length - 1;
             }
+            this.save();
         }
     }
 

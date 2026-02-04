@@ -34,7 +34,7 @@ This document tracks the migration of Zelland from a native Android application 
     - [x] Emit `intent://received` event to Tauri.
 - [x] **Platform Notifications**:
     - [x] Integrate `tauri-plugin-notification`.
-    - [ ] Wire Daemon "Notification" Protobuf messages to system notifications.
+    - [x] Wire Daemon "Notification" Protobuf messages to system notifications.
 
 ### Phase 4: Frontend & UI (Svelte 5)
 - [x] **State Management**:

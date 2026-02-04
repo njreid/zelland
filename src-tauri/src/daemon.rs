@@ -5,8 +5,9 @@ pub mod proto {
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter};
-use crate::daemon::proto::Envelope;
+use crate::daemon::proto::{Envelope, envelope::Payload};
 use prost::Message as _;
+use tauri_plugin_notification::NotificationExt;
 
 pub struct DaemonManager {
     app_handle: AppHandle,
@@ -28,8 +29,22 @@ impl DaemonManager {
             while let Some(msg) = read.next().await {
                 if let Ok(Message::Binary(data)) = msg {
                     if let Ok(envelope) = Envelope::decode(&data[..]) {
-                        // Forward to frontend
-                        let _ = app_handle.emit("daemon-event", envelope);
+                        // Handle payloads
+                        if let Some(payload) = envelope.payload {
+                            match payload {
+                                Payload::Notification(notif) => {
+                                    let _ = app_handle.notification()
+                                        .builder()
+                                        .title(notif.title)
+                                        .body(notif.body)
+                                        .show();
+                                }
+                                _ => {
+                                    // Forward other events to frontend
+                                    let _ = app_handle.emit("daemon-event", envelope);
+                                }
+                            }
+                        }
                     }
                 }
             }

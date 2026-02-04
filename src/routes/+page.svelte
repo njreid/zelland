@@ -97,6 +97,7 @@
                                                 } 
                                             });
                                             tab.data.connected = true;
+                                            sessionStore.save();
                                         } catch (e) {
                                             alert('Connection failed: ' + e);
                                         }
