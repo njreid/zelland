@@ -7,19 +7,19 @@ use crate::ssh::{SshConfig, SshManager};
 use crate::daemon::DaemonManager;
 
 #[tauri::command]
-async fn ssh_connect(state: State<'_, SshManager>, config: SshConfig) -> Result<(), String> {
-    state.connect(config).await
+async fn ssh_connect(app_handle: AppHandle, state: State<'_, SshManager>, tab_id: String, config: SshConfig) -> Result<(), String> {
+    state.connect(tab_id, config, app_handle).await
 }
 
 #[tauri::command]
-async fn ssh_disconnect(state: State<'_, SshManager>) -> Result<(), ()> {
-    state.disconnect().await;
+async fn ssh_disconnect(state: State<'_, SshManager>, tab_id: String) -> Result<(), ()> {
+    state.disconnect(tab_id).await;
     Ok(())
 }
 
 #[tauri::command]
-async fn ssh_exec(state: State<'_, SshManager>, command: String) -> Result<String, String> {
-    state.execute_command(command).await
+async fn ssh_write(state: State<'_, SshManager>, tab_id: String, data: Vec<u8>) -> Result<(), String> {
+    state.write_input(tab_id, data).await
 }
 
 #[tauri::command]
@@ -42,7 +42,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_disconnect,
-            ssh_exec,
+            ssh_write,
             daemon_connect
         ])
         .run(tauri::generate_context!())

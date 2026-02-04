@@ -20,11 +20,11 @@ This document tracks the migration of Zelland from a native Android application 
 
 ### Phase 2: Core Logic (Rust Backend)
 - [x] **Port SSH Manager**: Create `src-tauri/src/ssh.rs` replacing `SSHConnectionManager.kt`.
-    - Implement `connect`, `disconnect`, `exec`.
-    - [ ] Implement PTY allocation for interactive sessions.
+    - [x] Implement `connect`, `disconnect`, `exec`.
+    - [x] Implement PTY allocation for interactive sessions.
 - [x] **Implement Daemon Bridge**: Create `src-tauri/src/daemon.rs`.
-    - WebSocket client (`tokio-tungstenite`) to talk to `zellandd`.
-    - Protobuf parsing (`prost`) for `zelland.proto`.
+    - [x] WebSocket client (`tokio-tungstenite`) to talk to `zellandd`.
+    - [x] Protobuf parsing (`prost`) for `zelland.proto`.
 - [x] **Event System**: Setup Rust-to-Frontend event emission (e.g., `ssh-output`, `open-tab`).
 
 ### Phase 3: Android Integrations (Mobile Features)
@@ -47,8 +47,8 @@ This document tracks the migration of Zelland from a native Android application 
     - [x] Build `VirtualKeyboard.svelte` (ModBar + AlphaGrid) with CSS transitions.
 - [x] **Main Layout**:
     - [x] Implement SPA Tab View (Swipeable tabs for Terminal/Viewer).
-- [ ] **Viewer Component**:
-    - Create `Viewer.svelte` for Images/Markdown.
+- [x] **Viewer Component**:
+    - [x] Create `Viewer.svelte` for Images/Markdown.
 
 ### Phase 5: Testing & Migration
 - [ ] **Unit Tests**:

@@ -28,9 +28,15 @@
         term.open(terminalElement);
         fitAddon.fit();
 
-        term.onData((data) => {
-            // Send to Rust
-            // TODO: Implementation for interactive sessions
+        term.onData(async (data) => {
+            try {
+                // Convert string to bytes for Rust
+                const encoder = new TextEncoder();
+                const bytes = encoder.encode(data);
+                await invoke('ssh_write', { tabId, data: Array.from(bytes) });
+            } catch (e) {
+                console.error('Failed to write to SSH:', e);
+            }
         });
 
         // Listen for output from Rust

@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use russh::*;
 use russh::client::AuthResult;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum AuthMethod {
@@ -28,19 +29,18 @@ impl client::Handler for Client {
 }
 
 pub struct SshManager {
-    pub session: Arc<Mutex<Option<client::Handle<Client>>>>,
+    // Stores the write handle for each active session
+    pub active_sessions: Arc<Mutex<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
 }
 
 impl SshManager {
     pub fn new() -> Self {
         Self {
-            session: Arc::new(Mutex::new(None)),
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub async fn connect(&self, config: SshConfig) -> Result<(), String> {
-        let mut session_guard = self.session.lock().await;
-        
+    pub async fn connect(&self, tab_id: String, config: SshConfig, app_handle: tauri::AppHandle) -> Result<(), String> {
         let client_config = client::Config {
             ..Default::default()
         };
@@ -63,7 +63,50 @@ impl SshManager {
 
         match auth_res {
             Ok(AuthResult::Success) => {
-                *session_guard = Some(session);
+                let mut channel = session.channel_open_session().await
+                    .map_err(|e| format!("Failed to open channel: {}", e))?;
+                
+                channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await
+                    .map_err(|e| format!("Failed to request PTY: {}", e))?;
+                
+                channel.request_shell(true).await
+                    .map_err(|e| format!("Failed to request shell: {}", e))?;
+
+                let (tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
+                let tab_id_clone = tab_id.clone();
+                let app_handle_clone = app_handle.clone();
+
+                tokio::spawn(async move {
+                    use tauri::Emitter;
+                    loop {
+                        tokio::select! {
+                            // Read from frontend, write to SSH
+                            Some(data) = rx.recv() => {
+                                if let Err(_) = channel.data(&data[..]).await {
+                                    break;
+                                }
+                            }
+                            // Read from SSH, emit to frontend
+                            Some(msg) = channel.wait() => {
+                                match msg {
+                                    russh::ChannelMsg::Data { ref data } => {
+                                        let _ = app_handle_clone.emit("ssh-output", serde_json::json!({
+                                            "tabId": tab_id_clone,
+                                            "data": String::from_utf8_lossy(data)
+                                        }));
+                                    }
+                                    russh::ChannelMsg::ExitStatus { .. } | russh::ChannelMsg::Eof => break,
+                                    _ => {}
+                                }
+                            }
+                            else => break
+                        }
+                    }
+                    // Session ended
+                    let _ = app_handle_clone.emit("ssh-closed", tab_id_clone);
+                });
+
+                self.active_sessions.lock().await.insert(tab_id, tx);
                 Ok(())
             }
             Ok(_) => Err("Authentication failed".to_string()),
@@ -71,33 +114,18 @@ impl SshManager {
         }
     }
 
-    pub async fn disconnect(&self) {
-        let mut session_guard = self.session.lock().await;
-        *session_guard = None;
+    pub async fn write_input(&self, tab_id: String, data: Vec<u8>) -> Result<(), String> {
+        let active = self.active_sessions.lock().await;
+        if let Some(tx) = active.get(&tab_id) {
+            tx.send(data).await.map_err(|_| "Failed to send to channel".to_string())?;
+            Ok(())
+        } else {
+            Err("No active session".to_string())
+        }
     }
 
-    pub async fn execute_command(&self, command: String) -> Result<String, String> {
-        let mut session_guard = self.session.lock().await;
-        let session = session_guard.as_mut().ok_or("Not connected")?;
-
-        let mut channel = session.channel_open_session().await
-            .map_err(|e| format!("Failed to open channel: {}", e))?;
-
-        channel.exec(true, command).await
-            .map_err(|e| format!("Failed to execute command: {}", e))?;
-
-        let mut output = String::new();
-        while let Some(msg) = channel.wait().await {
-            match msg {
-                russh::ChannelMsg::Data { ref data } => {
-                    output.push_str(&String::from_utf8_lossy(data));
-                }
-                russh::ChannelMsg::ExitStatus { .. } => break,
-                russh::ChannelMsg::Eof => break,
-                _ => {}
-            }
-        }
-
-        Ok(output)
+    pub async fn disconnect(&self, tab_id: String) {
+        let mut active = self.active_sessions.lock().await;
+        active.remove(&tab_id);
     }
 }
