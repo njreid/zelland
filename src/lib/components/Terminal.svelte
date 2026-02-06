@@ -6,7 +6,7 @@
     import { invoke } from '@tauri-apps/api/core';
     import { listen } from '@tauri-apps/api/event';
 
-    let { tabId, data } = $props();
+    let { tabId } = $props<{ tabId: string }>();
     
     let terminalElement: HTMLDivElement;
     let term: Terminal;
@@ -30,23 +30,26 @@
 
         term.onData(async (data) => {
             try {
-                // Convert string to bytes for Rust
                 const encoder = new TextEncoder();
                 const bytes = encoder.encode(data);
-                await invoke('ssh_write', { tabId, data: Array.from(bytes) });
+                await invoke('mosh_write', { tabId, data: Array.from(bytes) });
             } catch (e) {
-                console.error('Failed to write to SSH:', e);
+                console.error('Failed to write to MOSH:', e);
             }
         });
 
-        // Listen for output from Rust
-        unlisten = await listen('ssh-output', (event: any) => {
+        unlisten = await listen('mosh-output', (event: any) => {
             if (event.payload.tabId === tabId) {
                 term.write(event.payload.data);
             }
         });
 
-        window.addEventListener('resize', () => fitAddon.fit());
+        const resizeHandler = () => fitAddon.fit();
+        window.addEventListener('resize', resizeHandler);
+        
+        return () => {
+            window.removeEventListener('resize', resizeHandler);
+        };
     });
 
     onDestroy(() => {
@@ -55,9 +58,14 @@
     });
 </script>
 
-<div bind:this={terminalElement} class="w-full h-full bg-[#1a1b26]"></div>
+<div bind:this={terminalElement} class="terminal-container"></div>
 
 <style>
+    .terminal-container {
+        width: 100%;
+        height: 100%;
+        background-color: #1a1b26;
+    }
     :global(.xterm) {
         padding: 8px;
     }
