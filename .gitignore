@@ -33,3 +33,23 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Node
+node_modules
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# SvelteKit
+.svelte-kit
+/package
+/build
+/.output
+.vercel
+.netlify
+
+# Tauri
+src-tauri/target
+src-tauri/gen
+
