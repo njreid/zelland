@@ -40,4 +40,5 @@ anyhow = "1.0"
 bytes = "1.9"
 base64 = "0.22"
 ipnetwork = "0.21"
+portable-pty = "0.9"
 

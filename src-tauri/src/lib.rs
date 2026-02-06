@@ -2,6 +2,7 @@ pub mod ssh;
 pub mod daemon;
 pub mod intent;
 pub mod network;
+pub mod mosh;
 
 use tauri::{State, AppHandle, Manager};
 use crate::ssh::{SshConfig, SshManager};
@@ -54,6 +55,7 @@ pub fn run() {
         })
         .manage(SshManager::new())
         .manage(network::NetworkManager::new())
+        .manage(mosh::MoshManager::new())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
@@ -68,7 +70,9 @@ pub fn run() {
             daemon_connect,
             ssh_list_zellij_sessions,
             network::start_tunnel,
-            network::stop_tunnel
+            network::stop_tunnel,
+            mosh::mosh_connect,
+            mosh::mosh_write
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
