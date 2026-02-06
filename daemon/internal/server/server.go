@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -53,6 +54,11 @@ func (s *Server) Start() error {
 
 	// Asset serving endpoint
 	http.Handle("/assets/", http.StripPrefix("/assets/", s.assetManager))
+
+	// Project management endpoints
+	http.HandleFunc("/api/v1/projects", s.handleProjects)
+	http.HandleFunc("/api/v1/projects/activate", s.handleProjectActivate)
+	http.HandleFunc("/api/v1/fs/read", s.handleFsRead)
 
 	// IPC / Trigger endpoints (restricted to loopback)
 	http.Handle("/api/v1/trigger/show", s.loopbackOnly(http.HandlerFunc(s.handleTriggerShow)))
@@ -258,4 +264,77 @@ func (s *Server) Broadcast(env *pb.Envelope) {
 	for conn := range s.clients {
 		go s.SendMessage(conn, env)
 	}
+}
+
+func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	projects, err := kdl.LoadProjects("projects.kdl")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(projects)
+}
+
+type ActivateRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+func (s *Server) handleProjectActivate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ActivateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	projects, err := kdl.LoadProjects("projects.kdl")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var target *kdl.Project
+	for _, p := range projects {
+		if p.ID == req.ProjectID {
+			target = &p
+			break
+		}
+	}
+
+	if target == nil {
+		http.Error(w, "Project not found", http.StatusNotFound)
+		return
+	}
+
+	// TODO: Ensure zellij session exists or create it
+	// For now, just return success
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Activated project %s", target.Name)
+}
+
+func (s *Server) handleFsRead(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "Path is required", http.StatusBadRequest)
+		return
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Write(data)
 }
