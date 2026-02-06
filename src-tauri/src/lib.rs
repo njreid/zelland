@@ -1,8 +1,9 @@
 pub mod ssh;
 pub mod daemon;
 pub mod intent;
+pub mod network;
 
-use tauri::{State, AppHandle};
+use tauri::{State, AppHandle, Manager};
 use crate::ssh::{SshConfig, SshManager};
 use crate::daemon::DaemonManager;
 
@@ -28,10 +29,31 @@ async fn daemon_connect(app_handle: AppHandle, url: String) -> Result<(), String
     manager.connect(url).await
 }
 
+#[tauri::command]
+async fn ssh_list_zellij_sessions(state: State<'_, SshManager>, config: SshConfig) -> Result<Vec<String>, String> {
+    // Run zellij list-sessions to get active sessions
+    let output = state.run_command(config, "zellij list-sessions -n -q".to_string()).await?;
+    let sessions = output.lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+    Ok(sessions)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(debug_assertions)]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+            }
+            Ok(())
+        })
         .manage(SshManager::new())
+        .manage(network::NetworkManager::new())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
@@ -43,7 +65,10 @@ pub fn run() {
             ssh_connect,
             ssh_disconnect,
             ssh_write,
-            daemon_connect
+            daemon_connect,
+            ssh_list_zellij_sessions,
+            network::start_tunnel,
+            network::stop_tunnel
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
