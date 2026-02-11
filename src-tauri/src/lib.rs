@@ -56,6 +56,12 @@ async fn close_window(app_handle: AppHandle) {
     app_handle.exit(0);
 }
 
+/// Called by the frontend to deliver the result of a biometric authentication prompt.
+#[tauri::command]
+async fn biometric_result(response: crate::keystore::BiometricResponse) {
+    crate::keystore::complete_biometric_request(response);
+}
+
 #[tauri::command]
 async fn generate_ssh_key(app_handle: AppHandle, label: String) -> Result<crate::keystore::KeyIdentity, String> {
     #[cfg(target_os = "android")]
@@ -123,7 +129,8 @@ pub fn run() {
             generate_ssh_key,
             list_ssh_keys,
             delete_ssh_key,
-            close_window
+            close_window,
+            biometric_result
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

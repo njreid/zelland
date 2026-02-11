@@ -162,10 +162,50 @@ impl KeyManager for StandardKeyManager {
     }
 }
 
+/// Request sent from Rust to frontend to trigger biometric authentication.
+#[derive(Debug, Serialize, Clone)]
+pub struct BiometricRequest {
+    pub request_id: String,
+    pub key_id: String,
+    pub title: String,
+    pub subtitle: String,
+}
+
+/// Response sent from frontend back to Rust after biometric authentication.
+#[derive(Debug, Deserialize, Clone)]
+pub struct BiometricResponse {
+    pub request_id: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+/// Global registry of pending biometric requests, keyed by request_id.
+/// When a biometric request completes, the frontend emits a "biometric-result" event
+/// and we resolve the corresponding oneshot sender.
+static BIOMETRIC_PENDING: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<BiometricResponse>>>
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+use std::collections::HashMap;
+
+/// Register a pending biometric request and return a receiver to await the result.
+pub fn register_biometric_request(request_id: String) -> tokio::sync::oneshot::Receiver<BiometricResponse> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    BIOMETRIC_PENDING.lock().unwrap().insert(request_id, tx);
+    rx
+}
+
+/// Complete a pending biometric request (called from the Tauri event handler).
+pub fn complete_biometric_request(response: BiometricResponse) {
+    if let Some(tx) = BIOMETRIC_PENDING.lock().unwrap().remove(&response.request_id) {
+        let _ = tx.send(response);
+    }
+}
+
 #[cfg(target_os = "android")]
 pub struct AndroidKeyManager {
     app_handle: tauri::AppHandle,
-    base_manager: StandardKeyManager, // Still use standard for the SSH key storage, but protect with biometrics
+    base_manager: StandardKeyManager,
 }
 
 #[cfg(target_os = "android")]
@@ -176,18 +216,40 @@ impl AndroidKeyManager {
             base_manager: StandardKeyManager::new(app_handle),
         }
     }
+
+    /// Request biometric authentication via the frontend and wait for the result.
+    async fn request_biometric(&self, key_id: &str, reason: &str) -> Result<(), String> {
+        use tauri::Emitter;
+
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let rx = register_biometric_request(request_id.clone());
+
+        let request = BiometricRequest {
+            request_id: request_id.clone(),
+            key_id: key_id.to_string(),
+            title: "Unlock SSH Key".to_string(),
+            subtitle: reason.to_string(),
+        };
+
+        self.app_handle.emit("biometric-request", &request)
+            .map_err(|e| format!("Failed to emit biometric request: {}", e))?;
+
+        let response = rx.await
+            .map_err(|_| "Biometric request was cancelled".to_string())?;
+
+        if response.success {
+            Ok(())
+        } else {
+            Err(response.error.unwrap_or_else(|| "Biometric authentication failed".to_string()))
+        }
+    }
 }
 
 #[cfg(target_os = "android")]
 #[async_trait]
 impl KeyManager for AndroidKeyManager {
     async fn generate_key(&self, label: String) -> Result<KeyIdentity, String> {
-        // 1. Generate standard SSH key
         let identity = self.base_manager.generate_key(label).await?;
-        
-        // 2. Generate biometric key in Android Keystore to protect this identity
-        // In this simplified approach, we just ensure a biometric key exists
-        // In a full implementation, we'd encrypt the SSH private key with the Keystore key.
         Ok(identity)
     }
 
@@ -200,14 +262,13 @@ impl KeyManager for AndroidKeyManager {
     }
 
     async fn sign(&self, id: String, data: &[u8], reason: String) -> Result<Vec<u8>, String> {
-        // Trigger Biometric Prompt via frontend or internal event
-        // This is a complex flow because the SSH handshake is happening in a background thread.
-        // We might need to use a oneshot channel to wait for the biometric result.
-
         info!("Requesting biometric authentication for signing with key: {}", id);
 
-        // For now, return error as we need to wire up the async callback from Kotlin
-        Err("Biometric signing bridge not fully wired up".to_string())
+        // Trigger biometric prompt and wait for result
+        self.request_biometric(&id, &reason).await?;
+
+        // Biometric succeeded — decrypt and sign using the base manager
+        self.base_manager.sign(id, data, reason).await
     }
 }
 
@@ -466,5 +527,70 @@ mod tests {
 
         assert!(!key.is_encrypted(), "Decrypted key should not be encrypted");
         assert!(matches!(key.key_data(), ssh_key::private::KeypairData::Ed25519(_)));
+    }
+
+    #[tokio::test]
+    async fn test_biometric_bridge_success() {
+        let request_id = "test-req-1".to_string();
+        let rx = register_biometric_request(request_id.clone());
+
+        // Simulate frontend completing the biometric request
+        complete_biometric_request(BiometricResponse {
+            request_id: request_id.clone(),
+            success: true,
+            error: None,
+        });
+
+        let result = rx.await.unwrap();
+        assert!(result.success);
+        assert!(result.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_biometric_bridge_failure() {
+        let request_id = "test-req-2".to_string();
+        let rx = register_biometric_request(request_id.clone());
+
+        complete_biometric_request(BiometricResponse {
+            request_id: request_id.clone(),
+            success: false,
+            error: Some("User cancelled".to_string()),
+        });
+
+        let result = rx.await.unwrap();
+        assert!(!result.success);
+        assert_eq!(result.error, Some("User cancelled".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_biometric_bridge_unknown_request_ignored() {
+        // Completing a request that was never registered should not panic
+        complete_biometric_request(BiometricResponse {
+            request_id: "nonexistent".to_string(),
+            success: true,
+            error: None,
+        });
+    }
+
+    #[test]
+    fn test_biometric_request_serde() {
+        let req = BiometricRequest {
+            request_id: "r1".to_string(),
+            key_id: "k1".to_string(),
+            title: "Unlock SSH Key".to_string(),
+            subtitle: "Connect to server".to_string(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("request_id"));
+        assert!(json.contains("key_id"));
+    }
+
+    #[test]
+    fn test_biometric_response_serde() {
+        let json = r#"{"request_id":"r1","success":true,"error":null}"#;
+        let resp: BiometricResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.request_id, "r1");
+        assert!(resp.success);
+        assert!(resp.error.is_none());
     }
 }
