@@ -58,6 +58,7 @@ rust {
 }
 
 dependencies {
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
