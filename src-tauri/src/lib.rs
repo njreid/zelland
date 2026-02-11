@@ -58,12 +58,18 @@ async fn close_window(app_handle: AppHandle) {
 
 #[tauri::command]
 async fn generate_ssh_key(app_handle: AppHandle, label: String) -> Result<crate::keystore::KeyIdentity, String> {
+    #[cfg(target_os = "android")]
+    let manager = crate::keystore::AndroidKeyManager::new(&app_handle);
+    #[cfg(not(target_os = "android"))]
     let manager = StandardKeyManager::new(&app_handle);
     manager.generate_key(label).await
 }
 
 #[tauri::command]
 async fn list_ssh_keys(app_handle: AppHandle) -> Result<Vec<crate::keystore::KeyIdentity>, String> {
+    #[cfg(target_os = "android")]
+    let manager = crate::keystore::AndroidKeyManager::new(&app_handle);
+    #[cfg(not(target_os = "android"))]
     let manager = StandardKeyManager::new(&app_handle);
     manager.list_identities().await
 }
