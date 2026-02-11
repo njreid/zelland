@@ -6,11 +6,13 @@ use tokio::sync::{Mutex, mpsc};
 use std::collections::HashMap;
 use std::future::Future;
 use log::{info, error, debug};
+use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum AuthMethod {
     Password,
     PrivateKey,
+    Key, // KeyStore managed key
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -22,6 +24,7 @@ pub struct SshConfig {
     pub password: Option<String>,
     pub private_key_path: Option<String>,
     pub private_key_passphrase: Option<String>,
+    pub key_id: Option<String>,
     pub session_name: String,
 }
 
@@ -55,7 +58,7 @@ impl SshManager {
         }
     }
 
-    pub async fn run_command(&self, config: SshConfig, cmd: String) -> Result<String, String> {
+    pub async fn run_command(&self, app_handle: tauri::AppHandle, config: SshConfig, cmd: String) -> Result<String, String> {
         debug!("Running SSH command: {} on {}:{}", cmd, config.host, config.port);
         let client_config = client::Config {
             ..Default::default()
@@ -77,6 +80,13 @@ impl SshManager {
             }
             AuthMethod::PrivateKey => {
                 return Err("Private key auth not implemented yet".to_string());
+            }
+            AuthMethod::Key => {
+                let key_id = config.key_id.clone().ok_or("Key ID is required")?;
+                let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
+                let priv_path = base_path.join(format!("{}.priv", key_id));
+                let key = russh_keys::load_secret_key(priv_path, None).map_err(|e| format!("Failed to load key: {}", e))?;
+                session.authenticate_publickey(&config.username, Arc::new(key)).await
             }
         };
 
@@ -134,6 +144,13 @@ impl SshManager {
             }
             AuthMethod::PrivateKey => {
                 return Err("Private key auth not implemented yet".to_string());
+            }
+            AuthMethod::Key => {
+                let key_id = config.key_id.clone().ok_or("Key ID is required")?;
+                let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
+                let priv_path = base_path.join(format!("{}.priv", key_id));
+                let key = russh_keys::load_secret_key(priv_path, None).map_err(|e| format!("Failed to load key: {}", e))?;
+                session.authenticate_publickey(&config.username, Arc::new(key)).await
             }
         };
 

@@ -37,8 +37,8 @@ async fn daemon_connect(app_handle: AppHandle, url: String) -> Result<(), String
 }
 
 #[tauri::command]
-async fn ssh_list_zellij_sessions(state: State<'_, SshManager>, config: SshConfig) -> Result<Vec<String>, String> {
-    let output = state.run_command(config, "zellij list-sessions -n -q".to_string()).await?;
+async fn ssh_list_zellij_sessions(app_handle: AppHandle, state: State<'_, SshManager>, config: SshConfig) -> Result<Vec<String>, String> {
+    let output = state.run_command(app_handle, config, "zellij list-sessions -n -q".to_string()).await?;
     let sessions = output.lines()
         .map(|line| line.trim().to_string())
         .filter(|line| !line.is_empty())
@@ -47,8 +47,8 @@ async fn ssh_list_zellij_sessions(state: State<'_, SshManager>, config: SshConfi
 }
 
 #[tauri::command]
-async fn run_remote_command(state: State<'_, SshManager>, config: SshConfig, command: String) -> Result<String, String> {
-    state.run_command(config, command).await
+async fn run_remote_command(app_handle: AppHandle, state: State<'_, SshManager>, config: SshConfig, command: String) -> Result<String, String> {
+    state.run_command(app_handle, config, command).await
 }
 
 #[tauri::command]
