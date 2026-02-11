@@ -19,9 +19,9 @@ tasks:
 
   "dev:daemon":
     desc: "Run the zelland daemon"
-    dir: daemon
+    dir: daemon-rs
     cmds:
-      - go run cmd/zellandd/main.go
+      - cargo run --bin zellandd
 
   "dev:android":
     desc: "Run the app in development mode (Android)"
@@ -30,12 +30,12 @@ tasks:
 
   "build:daemon":
     desc: "Build the daemon and CLI"
-    dir: daemon
+    dir: daemon-rs
     cmds:
       - mkdir -p ../build
-      - go build -o ../build/zellandd cmd/zellandd/main.go
-      - go build -o ../build/zelland cmd/zelland/main.go
-      - cp daemon.kdl ../build/daemon.kdl
+      - cargo build --release
+      - cp target/release/zellandd ../build/zellandd
+      - cp target/release/zelland ../build/zelland
 
   "build:linux":
     desc: "Build the app for Linux (Production)"
@@ -94,6 +94,7 @@ tasks:
     cmds:
       - npm run test
       - cd src-tauri && cargo test
+      - cd daemon-rs && cargo test
 
   "connect:android":
     desc: "Connect to Android device wirelessly (usage: task connect:android ADDR=192.168.1.5:PORT)"

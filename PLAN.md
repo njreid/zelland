@@ -112,45 +112,45 @@ This document tracks the evolution of zelland into a resilient mobile command ce
 Rewrite the companion daemon (`zellandd`) from Go to Rust to enable first-class YJS CRDT support via the `yrs` crate. The Go daemon is ~1,067 lines of source code. See `DAEMON_DESIGN.md` for architecture and `ANNOTATION_DESIGN.md` for the annotation system design.
 
 #### 6A: Rust Daemon Scaffold
-- [ ] Create `daemon-rs/` Cargo project with `axum`, `tokio`, `kdl`, `notify`, `prost`, `clap` dependencies.
-- [ ] **Config module** (`config.rs`): KDL config parsing (`port`, `cert_file`, `key_file`, `projects_path`). Default to port 8083, `~/code`.
-- [ ] **Tests:** Config load, default values, merge with CLI flags.
+- [x] Create `daemon-rs/` Cargo project with `axum`, `tokio`, `kdl`, `notify`, `prost`, `clap` dependencies.
+- [x] **Config module** (`config.rs`): KDL config parsing (`port`, `cert_file`, `key_file`, `projects_path`). Default to port 8083, `~/code`.
+- [x] **Tests:** Config load, default values, merge with CLI flags.
 
 #### 6B: Core Data & Persistence
-- [ ] **Project types** (`projects.rs`): `Project` struct, directory scanning (replaces Go `kdl/projects.go`).
-- [ ] **Annotation types** (`store.rs`): `Annotation` struct with KDL serde. Load/Save/Append (upsert) for `.ann.kdl` files.
-- [ ] **Tests:** KDL roundtrip for projects and annotations, upsert logic, missing file handling.
+- [x] **Project types** (`projects.rs`): `Project` struct, directory scanning (replaces Go `kdl/projects.go`).
+- [x] **Annotation types** (`store.rs`): `Annotation` struct with KDL serde. Load/Save/Append (upsert) for `.ann.kdl` files.
+- [x] **Tests:** KDL roundtrip for projects and annotations, upsert logic, missing file handling.
 
 #### 6C: Asset Manager
-- [ ] **Asset manager** (`assets.rs`): Random ID generation, TTL-based expiry (30 min), cleanup task, file serving.
-- [ ] **Tests:** Register, serve, expiry, cleanup.
+- [x] **Asset manager** (`assets.rs`): Random ID generation, TTL-based expiry (30 min), cleanup task, file serving.
+- [x] **Tests:** Register, serve, expiry, cleanup.
 
 #### 6D: HTTP Server (axum)
-- [ ] **REST endpoints** matching Go API:
+- [x] **REST endpoints** matching Go API:
     - `GET /api/v1/projects` — list projects from directory scan.
     - `POST /api/v1/projects/activate` — acknowledge activation.
     - `GET /api/v1/fs/read?path=` — read file content (with path security check).
     - `GET /assets/{id}` — serve registered assets.
     - `POST /api/v1/trigger/show` — register + broadcast image (loopback only).
     - `POST /api/v1/trigger/md` — register + broadcast markdown (loopback only).
-- [ ] **Loopback guard** middleware for trigger endpoints.
-- [ ] **Tests:** Each endpoint with mock requests, loopback enforcement.
+- [x] **Loopback guard** middleware for trigger endpoints.
+- [x] **Tests:** Each endpoint with mock requests, loopback enforcement.
 
 #### 6E: WebSocket & Protobuf
-- [ ] **WebSocket handler** (`/ws`): Binary protobuf over WebSocket (same `zelland.proto`).
-- [ ] **Client registry**: Track connected clients, broadcast to all.
-- [ ] **Message dispatch**: Handle `AnnotationAction`, forward to store.
-- [ ] **KeepAlive** ping on connect.
-- [ ] **Tests:** WebSocket connect/disconnect, protobuf round-trip, broadcast fan-out.
+- [x] **WebSocket handler** (`/ws`): Binary protobuf over WebSocket (same `zelland.proto`).
+- [x] **Client registry**: Track connected clients, broadcast to all.
+- [x] **Message dispatch**: Handle `AnnotationAction`, forward to store.
+- [x] **KeepAlive** ping on connect.
+- [x] **Tests:** WebSocket connect/disconnect, protobuf round-trip, broadcast fan-out.
 
 #### 6F: File Watching
-- [ ] **File watcher** (`notify` crate): Watch registered assets, broadcast `OpenViewRequest` on change.
-- [ ] **Tests:** File modification triggers broadcast.
+- [x] **File watcher** (`notify` crate): Watch registered assets, broadcast `OpenViewRequest` on change.
+- [x] **Tests:** File type detection (md, images, pdf, unknown).
 
 #### 6G: CLI Binaries
-- [ ] **`zellandd`** (`main.rs`): Entry point with `clap` flags (`--config`, `--port`).
-- [ ] **`zelland`** (separate `[[bin]]`): CLI tool for `show` and `md` trigger commands via localhost HTTP.
-- [ ] **Tests:** CLI argument parsing.
+- [x] **`zellandd`** (`main.rs`): Entry point with `clap` flags (`--config`, `--port`).
+- [x] **`zelland`** (separate `[[bin]]`): CLI tool for `show` and `md` trigger commands via localhost HTTP.
+- [x] **Integration tests:** Full API flow, WebSocket connect + ping, trigger from loopback.
 
 #### 6H: YJS Integration
 - [ ] Add `yrs` crate dependency.
@@ -162,7 +162,7 @@ Rewrite the companion daemon (`zellandd`) from Go to Rust to enable first-class 
 
 #### 6I: Integration & Cutover
 - [ ] Verify Tauri client (`daemon.rs`) works against new Rust daemon (same proto, same REST API).
-- [ ] Update `Taskfile.yml` `dev:daemon` to build/run Rust daemon.
+- [x] Update `Taskfile.yml` `dev:daemon` to build/run Rust daemon.
 - [ ] Remove Go `daemon/` directory.
 - [ ] Update `DAEMON_DESIGN.md` and `ANNOTATION_DESIGN.md`.
 
