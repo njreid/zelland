@@ -1,8 +1,8 @@
-# Zelland Companion Daemon Design
+# zelland Companion Daemon Design
 
 ## 1. Architectural Overview
 
-The **Zelland Daemon** (`zellandd`) is a backend service written in Go, running on the remote host (Linux). It acts as a bridge between the host's filesystem and the Zelland Android application, enabling rich media interactions and workflow enhancements beyond the terminal emulator.
+The **zelland Daemon** (`zellandd`) is a backend service written in Go, running on the remote host (Linux). It acts as a bridge between the host's filesystem and the zelland Android application, enabling rich media interactions and workflow enhancements beyond the terminal emulator.
 
 ### High-Level Components
 
@@ -11,7 +11,7 @@ The **Zelland Daemon** (`zellandd`) is a backend service written in Go, running 
    * **Asset Server**: An HTTPS server serving content via obfuscated, ephemeral URLs.
    * **State Manager**: Tracks active shared files and manages sidecar (`.kdl`) annotations.
 2. **CLI (`zelland`)**: A lightweight command-line tool that communicates with the daemon via IPC (Unix Domain Socket) or local HTTP to trigger actions (e.g., `zelland show image.png`).
-3. **Android Client**: The existing Zelland app, enhanced to listen for WebSocket commands and render non-terminal tabs (WebViews for images/markdown).
+3. **Android Client**: The existing zelland app, enhanced to listen for WebSocket commands and render non-terminal tabs (WebViews for images/markdown).
 
 ## 2. Communication Protocols
 

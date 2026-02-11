@@ -14,7 +14,20 @@ message Envelope {
     AnnotationAction annotation = 3;
     ClientStatus status = 4;
     Notification notification = 5;
+    ListSessionsRequest list_sessions_req = 6;
+    ListSessionsResponse list_sessions_res = 7;
+    CreateSessionRequest create_session_req = 8;
   }
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated string sessions = 1;
+}
+
+message CreateSessionRequest {
+  string name = 1;
 }
 
 message Notification {
@@ -37,7 +50,6 @@ message OpenViewRequest {
   }
   FileType file_type = 3;
   string title = 4;
-  // For Markdown, initial state might be included here or fetched separately
 }
 
 message AnnotationAction {

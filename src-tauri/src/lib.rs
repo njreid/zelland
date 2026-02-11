@@ -4,7 +4,7 @@ pub mod intent;
 pub mod network;
 pub mod mosh;
 
-use tauri::{State, AppHandle, Manager};
+use tauri::{State, AppHandle};
 use crate::ssh::{SshConfig, SshManager};
 use crate::daemon::DaemonManager;
 
@@ -25,6 +25,11 @@ async fn ssh_write(state: State<'_, SshManager>, tab_id: String, data: Vec<u8>) 
 }
 
 #[tauri::command]
+async fn ssh_resize(state: State<'_, SshManager>, tab_id: String, rows: u32, cols: u32) -> Result<(), String> {
+    state.resize(tab_id, rows, cols).await
+}
+
+#[tauri::command]
 async fn daemon_connect(app_handle: AppHandle, url: String) -> Result<(), String> {
     let manager = DaemonManager::new(app_handle);
     manager.connect(url).await
@@ -32,7 +37,6 @@ async fn daemon_connect(app_handle: AppHandle, url: String) -> Result<(), String
 
 #[tauri::command]
 async fn ssh_list_zellij_sessions(state: State<'_, SshManager>, config: SshConfig) -> Result<Vec<String>, String> {
-    // Run zellij list-sessions to get active sessions
     let output = state.run_command(config, "zellij list-sessions -n -q".to_string()).await?;
     let sessions = output.lines()
         .map(|line| line.trim().to_string())
@@ -41,13 +45,24 @@ async fn ssh_list_zellij_sessions(state: State<'_, SshManager>, config: SshConfi
     Ok(sessions)
 }
 
+#[tauri::command]
+async fn run_remote_command(state: State<'_, SshManager>, config: SshConfig, command: String) -> Result<String, String> {
+    state.run_command(config, command).await
+}
+
+#[tauri::command]
+async fn close_window(app_handle: AppHandle) {
+    app_handle.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(debug_assertions)]
             {
-                if let Some(window) = app.get_webview_window("main") {
+                use tauri::Manager;
+                if let Some(window) = _app.get_webview_window("main") {
                     window.open_devtools();
                 }
             }
@@ -56,17 +71,21 @@ pub fn run() {
         .manage(SshManager::new())
         .manage(network::NetworkManager::new())
         .manage(mosh::MoshManager::new())
+        .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_haptics::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_os::init())
         .plugin(intent::init())
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_disconnect,
             ssh_write,
+            ssh_resize,
+            run_remote_command,
             daemon_connect,
             daemon::daemon_get_projects,
             daemon::daemon_activate_project,
@@ -75,7 +94,9 @@ pub fn run() {
             network::start_tunnel,
             network::stop_tunnel,
             mosh::mosh_connect,
-            mosh::mosh_write
+            mosh::mosh_write,
+            mosh::mosh_resize,
+            close_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

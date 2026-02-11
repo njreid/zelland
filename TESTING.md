@@ -1,6 +1,6 @@
 # Testing Strategy & Guidelines
 
-This document details the testing methodologies for the Zelland migration to Mosh + WireGuard + Svelte 5. We adopt a **Test-First** approach where possible.
+This document details the testing methodologies for the zelland migration to Mosh + WireGuard + Svelte 5. We adopt a **Test-First** approach where possible.
 
 ## 1. Networking Core (Rust)
 

@@ -1,6 +1,6 @@
-# Zelland Protocol Specification
+# zelland Protocol Specification
 
-This document defines the communication protocol between the **Zelland Daemon** (`zellandd`) running on the host and the **Zelland Android App**. It also covers the internal IPC used by the `zelland` CLI.
+This document defines the communication protocol between the **zelland Daemon** (`zellandd`) running on the host and the **zelland Android App**. It also covers the internal IPC used by the `zelland` CLI.
 
 ## 1. Overview
 

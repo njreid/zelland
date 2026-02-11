@@ -1,6 +1,6 @@
 # MOSH_DESIGN.md: Wireguard + Mosh + Svelte 5 Architecture
 
-This document outlines the design for the next iteration of the Zelland mobile shell, moving from a standard SSH-based approach to a highly resilient architecture using **Wireguard** for the tunnel and **Mosh** for terminal persistence, all wrapped in a **Svelte 5** layout.
+This document outlines the design for the next iteration of the zelland mobile shell, moving from a standard SSH-based approach to a highly resilient architecture using **Wireguard** for the tunnel and **Mosh** for terminal persistence, all wrapped in a **Svelte 5** layout.
 
 ## 1. Objective
 Build a "Mobile Command Center" that remains connected across network switches (Wi-Fi to 5G) and provides a seamless developer experience with integrated project management and documentation viewing.
@@ -19,7 +19,7 @@ Build a "Mobile Command Center" that remains connected across network switches (
     - Manages the `GotaTun` packet loop in Rust.
     - Provides a local HTTP proxy to bridge the Svelte WebView to the remote Daemon via the WG tunnel.
     - Spawns and manages the `mosh-client` (via FFI on iOS, subprocess on Android).
-- **Zelland Daemon (Server)**:
+- **zelland Daemon (Server)**:
     - Maintains a KDL-based store of "Projects".
     - Orchestrates **Zellij** sessions.
     - Provides a REST API for project discovery, file reading (Markdown), and session activation.

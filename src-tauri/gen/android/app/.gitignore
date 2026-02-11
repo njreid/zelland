@@ -1,4 +1,4 @@
-/src/main/java/com/njr/tauri_app/generated
+/src/main/java/com/njr/zelland/generated
 /src/main/jniLibs/**/*.so
 /src/main/assets/tauri.conf.json
 /tauri.build.gradle.kts

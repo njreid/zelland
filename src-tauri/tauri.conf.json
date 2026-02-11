@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauri-app",
+  "productName": "zelland",
   "version": "0.1.0",
-  "identifier": "com.njr.tauri-app",
+  "identifier": "com.njr.zelland",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,10 @@
   "app": {
     "windows": [
       {
-        "title": "tauri-app",
+        "title": "zelland",
         "width": 800,
-        "height": 600
+        "height": 1200,
+        "decorations": false
       }
     ],
     "security": {
@@ -30,6 +31,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "externalBin": [
+      "./binaries/mosh-client"
     ]
   }
 }

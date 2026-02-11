@@ -6,11 +6,11 @@ import (
 )
 
 type Project struct {
-	ID          string `kdl:"id,prop"`
-	Name        string `kdl:"name,prop,optional"`
-	Host        string `kdl:"host,prop"`
-	SessionName string `kdl:"session_name,prop"`
-	RootPath    string `kdl:"root_path,prop"`
+	ID          string `kdl:"id,prop" json:"id"`
+	Name        string `kdl:"name,prop,optional" json:"name"`
+	Host        string `kdl:"host,prop" json:"host"`
+	SessionName string `kdl:"session_name,prop" json:"session_name"`
+	RootPath    string `kdl:"root_path,prop" json:"root_path"`
 }
 
 type ProjectFile struct {

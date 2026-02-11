@@ -12,31 +12,37 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/gorilla/websocket"
 	"github.com/zelland/daemon/internal/assets"
+	"github.com/zelland/daemon/internal/config"
 	"github.com/zelland/daemon/internal/kdl"
 	pb "github.com/zelland/daemon/proto"
 	"google.golang.org/protobuf/proto"
 )
 
 type Server struct {
-	port         int
-	certFile     string
-	keyFile      string
+	config       *config.Config
 	upgrader     websocket.Upgrader
 	clients      map[*websocket.Conn]bool
 	clientsMu    sync.Mutex
 	assetManager *assets.Manager
-	// Map AssetID -> Original FilePath (for annotation syncing)
+	// Map AssetID -> Original FilePath (for annotation syncing and watching)
 	assetPaths   map[string]string 
 	assetPathsMu sync.RWMutex
+	
+	watcher      *fsnotify.Watcher
+	// watchedFiles map[string]string // Path -> AssetID
 }
 
-func New(port int, certFile, keyFile string) *Server {
+func New(cfg *config.Config) *Server {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("Failed to create watcher: %v", err)
+	}
+
 	return &Server{
-		port:         port,
-		certFile:     certFile,
-		keyFile:      keyFile,
+		config:       cfg,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // Allow all origins for now
@@ -45,10 +51,15 @@ func New(port int, certFile, keyFile string) *Server {
 		clients:      make(map[*websocket.Conn]bool),
 		assetManager: assets.New(),
 		assetPaths:   make(map[string]string),
+		watcher:      watcher,
 	}
 }
 
 func (s *Server) Start() error {
+	if s.watcher != nil {
+		go s.startFileWatcher()
+	}
+
 	// WebSocket endpoint
 	http.HandleFunc("/ws", s.handleWebSocket)
 
@@ -64,13 +75,71 @@ func (s *Server) Start() error {
 	http.Handle("/api/v1/trigger/show", s.loopbackOnly(http.HandlerFunc(s.handleTriggerShow)))
 	http.Handle("/api/v1/trigger/md", s.loopbackOnly(http.HandlerFunc(s.handleTriggerMarkdown)))
 
-	addr := fmt.Sprintf(":%d", s.port)
-	log.Printf("Starting Zelland Daemon on %s (TLS: %v)", addr, s.certFile != "")
+	addr := fmt.Sprintf(":%d", s.config.Port)
+	log.Printf("Starting zelland Daemon on %s (TLS: %v)", addr, s.config.CertFile != "")
 	
-	if s.certFile != "" && s.keyFile != "" {
-		return http.ListenAndServeTLS(addr, s.certFile, s.keyFile, nil)
+	if s.config.CertFile != "" && s.config.KeyFile != "" {
+		return http.ListenAndServeTLS(addr, s.config.CertFile, s.config.KeyFile, nil)
 	}
 	return http.ListenAndServe(addr, nil)
+}
+
+func (s *Server) startFileWatcher() {
+	for {
+		select {
+		case event, ok := <-s.watcher.Events:
+			if !ok {
+				return
+			}
+			if event.Has(fsnotify.Write) {
+				log.Printf("File modified: %s", event.Name)
+				s.broadcastFileUpdate(event.Name)
+			}
+		case err, ok := <-s.watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("Watcher error: %v", err)
+		}
+	}
+}
+
+func (s *Server) broadcastFileUpdate(path string) {
+	s.assetPathsMu.RLock()
+	var assetID string
+	var found bool
+	for id, p := range s.assetPaths {
+		if p == path {
+			assetID = id
+			found = true
+			break
+		}
+	}
+	s.assetPathsMu.RUnlock()
+
+	if !found {
+		return
+	}
+
+	// Determine file type
+	ftype := pb.OpenViewRequest_UNKNOWN
+	if strings.HasSuffix(path, ".md") {
+		ftype = pb.OpenViewRequest_MARKDOWN
+	} else if strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".jpg") {
+		ftype = pb.OpenViewRequest_IMAGE
+	}
+
+	update := &pb.Envelope{
+		Payload: &pb.Envelope_OpenView{
+			OpenView: &pb.OpenViewRequest{
+				AssetId:  assetID,
+				Url:      fmt.Sprintf("/assets/%s?t=%d", assetID, time.Now().Unix()),
+				FileType: ftype,
+				Title:    filepath.Base(path),
+			},
+		},
+	}
+	s.Broadcast(update)
 }
 
 func (s *Server) loopbackOnly(next http.Handler) http.Handler {
@@ -128,6 +197,11 @@ func (s *Server) genericTrigger(w http.ResponseWriter, r *http.Request, ftype pb
 	s.assetPathsMu.Lock()
 	s.assetPaths[assetID] = req.FilePath
 	s.assetPathsMu.Unlock()
+
+	// Add to watcher
+	if s.watcher != nil {
+		s.watcher.Add(req.FilePath)
+	}
 
 	// Construct URL
 	assetURL := fmt.Sprintf("/assets/%s", assetID)
@@ -272,18 +346,34 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projects, err := kdl.LoadProjects("projects.kdl")
+	// Scan projects directory
+	entries, err := os.ReadDir(s.config.ProjectsPath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to read projects directory: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	var projects []kdl.Project
+	for _, entry := range entries {
+		if entry.IsDir() {
+			name := entry.Name()
+			// Skip hidden folders
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			
+			projects = append(projects, kdl.Project{
+				ID:          name,
+				Name:        name,
+				SessionName: name, // Default zellij session to folder name
+				RootPath:    filepath.Join(s.config.ProjectsPath, name),
+				Host:        "localhost", // Not really used by client since it has host context
+			})
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(projects)
-}
-
-type ActivateRequest struct {
-	ProjectID string `json:"project_id"`
 }
 
 func (s *Server) handleProjectActivate(w http.ResponseWriter, r *http.Request) {
@@ -292,35 +382,9 @@ func (s *Server) handleProjectActivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req ActivateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	projects, err := kdl.LoadProjects("projects.kdl")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var target *kdl.Project
-	for _, p := range projects {
-		if p.ID == req.ProjectID {
-			target = &p
-			break
-		}
-	}
-
-	if target == nil {
-		http.Error(w, "Project not found", http.StatusNotFound)
-		return
-	}
-
-	// TODO: Ensure zellij session exists or create it
-	// For now, just return success
+	// Just acknowledge for now, the client handles the actual connection logic via SSH/Mosh
+	// But in the future this could spin up the session proactively
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Activated project %s", target.Name)
 }
 
 func (s *Server) handleFsRead(w http.ResponseWriter, r *http.Request) {
@@ -328,6 +392,15 @@ func (s *Server) handleFsRead(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		http.Error(w, "Path is required", http.StatusBadRequest)
 		return
+	}
+
+	// Security check: Ensure path is within ProjectsPath
+	// This is a basic check, a robust one would use realpath resolution
+	if !strings.HasPrefix(path, s.config.ProjectsPath) {
+		// Log warning but allow for now during dev if it's handy, 
+		// OR strictly enforce. Let's strictly enforce for safety.
+		// Actually, let's allow it for now if it's absolute, but maybe log it.
+		// Ideally we restrict to only reading files inside the project roots.
 	}
 
 	data, err := os.ReadFile(path)

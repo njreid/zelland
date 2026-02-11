@@ -36,6 +36,6 @@ declare module "$app/types" {
 		};
 		Pathname(): "/";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
-		Asset(): "/favicon.png" | "/svelte.svg" | "/tauri.svg" | "/vite.svg" | string & {};
+		Asset(): "/favicon.png" | "/fonts/InconsolataGoNerdFont-Bold.ttf" | "/fonts/InconsolataGoNerdFont-Regular.ttf" | "/fonts/InconsolataGoNerdFontMono-Bold.ttf" | "/fonts/InconsolataGoNerdFontMono-Regular.ttf" | "/fonts/InconsolataGoNerdFontPropo-Bold.ttf" | "/fonts/InconsolataGoNerdFontPropo-Regular.ttf" | "/fonts/Lobster-Regular.ttf" | "/fonts/OFL.txt" | "/fonts/README.md" | "/fonts/StackSansText-Variable.ttf" | "/svelte.svg" | "/tauri.svg" | "/vite.svg" | string & {};
 	}
 }

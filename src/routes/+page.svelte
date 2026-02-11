@@ -1,112 +1,151 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { projectStore } from '$lib/stores/project.svelte';
+    import { appState } from '$lib/stores/app.svelte';
     import Terminal from '$lib/components/Terminal.svelte';
     import MarkdownPane from '$lib/components/MarkdownPane.svelte';
     import VirtualKeyboard from '$lib/components/VirtualKeyboard.svelte';
-    import { invoke } from '@tauri-apps/api/core';
+    import TopBar from '$lib/components/TopBar.svelte';
+    import Sidebar from '$lib/components/Sidebar.svelte';
+    import ConnectionLogs from '$lib/components/ConnectionLogs.svelte';
+    import { Menu } from 'lucide-svelte';
+    import { platform } from '@tauri-apps/plugin-os';
 
-    let activePane = $state(0);
-    let daemonUrl = $state('http://10.0.0.1:8080'); // Example default
-    let isLoading = $state(false);
+    let sidebarOpen = $state(false);
+    let isLinux = $state(false);
+    let ribbonContainer: HTMLDivElement;
 
     onMount(async () => {
-        // Initial fetch of projects if daemon is reachable
-        await projectStore.fetchProjects(daemonUrl);
+        await appState.fetchAllProjects();
+        const osPlatform = await platform();
+        isLinux = osPlatform === 'linux';
     });
 
-    async function handleProjectSelect(projectId: string) {
-        isLoading = true;
-        try {
-            await projectStore.activateProject(daemonUrl, projectId);
-            // After activation, start mosh
-            if (projectStore.currentProject) {
-                await invoke("mosh_connect", {
-                    tabId: "main",
-                    config: {
-                        host: projectStore.currentProject.host,
-                        port: 22,
-                        username: "njr", // TODO: Make configurable
-                        auth_method: "Password",
-                        password: "password", // TODO: Make configurable
-                        session_name: projectStore.currentProject.session_name
-                    }
-                });
-            }
-        } catch (e) {
-            console.error("Failed to activate project:", e);
-        } finally {
-            isLoading = false;
+    function toggleSidebar() {
+        sidebarOpen = !sidebarOpen;
+    }
+
+    function closeSidebar() {
+        if (sidebarOpen) sidebarOpen = false;
+    }
+
+    function scrollToPane(index: number) {
+        if (ribbonContainer) {
+            const paneWidth = ribbonContainer.clientWidth;
+            ribbonContainer.scrollTo({
+                left: index * paneWidth,
+                behavior: 'smooth'
+            });
         }
     }
+
+    // Close sidebar when a session becomes active
+    $effect(() => {
+        if (appState.activeSessionId) {
+            sidebarOpen = false;
+            scrollToPane(0);
+        }
+    });
 </script>
 
-<div class="app-root h-screen flex flex-col overflow-hidden">
-    <div class="ribbon-container flex-1 overflow-x-auto overflow-y-hidden snap-x snap-mandatory flex">
-        <!-- Pane 0: Selection or Terminal -->
-        <section class="pane snap-start min-w-full h-full relative">
-            {#if projectStore.currentProject}
-                <Terminal tabId="main" />
-            {:else}
-                <div class="welcome-screen flex flex-col items-center justify-center p-8 h-full">
-                    <h1 class="text-2xl font-bold mb-4 text-accent">Zelland</h1>
-                    <div class="project-list w-full max-w-md bg-darker p-4 rounded-lg border border-border">
-                        <h2 class="text-sm font-bold uppercase mb-4 text-fg-dim">Select Project</h2>
-                        {#each projectStore.projects as project}
-                            <button 
-                                class="project-row w-full text-left p-3 rounded mb-2 hover:bg-border transition-colors"
-                                onclick={() => handleProjectSelect(project.id)}
-                            >
-                                <div class="font-bold">{project.name || project.id}</div>
-                                <div class="text-xs text-fg-dim">{project.host} - {project.root_path}</div>
-                            </button>
-                        {/each}
-                        <button class="btn-primary w-full py-2 mt-4 font-bold" onclick={() => projectStore.fetchProjects(daemonUrl)}>
-                            Refresh List
-                        </button>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<main class="container-fluid" onclick={closeSidebar}>
+    {#if isLinux}
+        <!-- Prevent clicks on the TopBar from closing the sidebar immediately -->
+        <div onclick={(e) => e.stopPropagation()}>
+            <TopBar onToggleSidebar={toggleSidebar} onScrollToPane={scrollToPane} />
+        </div>
+    {/if}
+
+    <div class="grid" style="flex: 1; overflow: hidden; position: relative;">
+        {#if sidebarOpen}
+            <!-- Prevent clicks inside the sidebar from closing it -->
+            <div onclick={(e) => e.stopPropagation()}>
+                <Sidebar />
+            </div>
+        {/if}
+
+        <div 
+            bind:this={ribbonContainer}
+            class="ribbon-container scrollbar-hide" 
+            style="flex: 1; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; display: flex;"
+        >
+            <!-- Pane 0: Terminal -->
+            <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; position: relative; overflow-y: hidden;">
+                {#if appState.activeSessionId}
+                    {#key appState.activeSessionId}
+                        <Terminal tabId={appState.activeSessionId} />
+                    {/key}
+                {:else}
+                    <div class="welcome-screen">
+                        <article onclick={(e) => e.stopPropagation()}>
+                            <header>
+                                <h1 class="title-font lowercase" style="color: var(--pico-primary); margin-bottom: 0;">zelland</h1>
+                                <small class="secondary">mobile command center</small>
+                            </header>
+                            
+                            <p>Select a host or session from the sidebar.</p>
+                            
+                            {#if !sidebarOpen}
+                                <footer>
+                                    <button class="outline contrast" onclick={(e) => { e.stopPropagation(); toggleSidebar(); }} style="width: auto; margin: 0 auto; display: flex; align-items: center; gap: 0.5rem;">
+                                        <Menu size={16} /> Open Sidebar
+                                    </button>
+                                </footer>
+                            {/if}
+                        </article>
                     </div>
-                </div>
-            {/if}
-        </section>
+                {/if}
+                <ConnectionLogs />
+            </section>
 
-        <!-- Pane 1: README.md -->
-        <section class="pane snap-start min-w-full h-full border-l border-border">
-            <MarkdownPane filename="README.md" />
-        </section>
+            <!-- Pane 1: README.md -->
+            <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; border-left: 1px solid var(--pico-border-color); overflow-y: hidden;">
+                <MarkdownPane filename="README.md" />
+            </section>
 
-        <!-- Pane 2: PLAN.md -->
-        <section class="pane snap-start min-w-full h-full border-l border-border">
-            <MarkdownPane filename="PLAN.md" />
-        </section>
+            <!-- Pane 2: PLAN.md -->
+            <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; border-left: 1px solid var(--pico-border-color); overflow-y: hidden;">
+                <MarkdownPane filename="PLAN.md" />
+            </section>
 
-        <!-- Pane 3: DESIGN.md -->
-        <section class="pane snap-start min-w-full h-full border-l border-border">
-            <MarkdownPane filename="DESIGN.md" />
-        </section>
+            <!-- Pane 3: DESIGN.md -->
+            <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; border-left: 1px solid var(--pico-border-color); overflow-y: hidden;">
+                <MarkdownPane filename="DESIGN.md" />
+            </section>
+        </div>
     </div>
 
-    <!-- Bottom Controls -->
-    <VirtualKeyboard onToggleSidebar={() => {}} />
-</div>
+    <!-- Bottom Area (Shortcut Bar / Virtual Keyboard) - Only on non-Linux (Mobile) -->
+    {#if !isLinux}
+        <div onclick={(e) => e.stopPropagation()}>
+            <VirtualKeyboard onToggleSidebar={toggleSidebar} />
+        </div>
+    {/if}
+</main>
 
 <style>
-    .app-root {
-        background-color: var(--bg-main);
-        color: var(--fg-main);
-    }
-
     .ribbon-container::-webkit-scrollbar {
         display: none;
     }
 
-    .pane {
-        flex-shrink: 0;
+    .welcome-screen {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        padding: 2rem;
+        background: radial-gradient(circle at center, var(--pico-form-element-background-color) 0%, var(--pico-background-color) 100%);
     }
 
-    .project-row {
-        background: var(--bg-main);
-        border: 1px solid var(--border);
+    .welcome-screen article {
+        width: 100%;
+        max-width: 400px;
+        text-align: center;
     }
-
-    .text-accent { color: var(--accent); }
+    
+    .secondary {
+        color: var(--fg-dim);
+    }
 </style>

@@ -1,0 +1,1 @@
+/home/njr/AGENTS.md

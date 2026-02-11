@@ -7,7 +7,18 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     "opener:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "args": true,
+          "cmd": "binaries/mosh-client",
+          "sidecar": true
+        }
+      ]
+    },
     "shell:default",
     "process:default",
     "notification:default",

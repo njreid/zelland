@@ -1,24 +1,29 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
+	"os/user"
+	"path/filepath"
+
+	"github.com/sblinch/kdl-go"
 )
 
 type Config struct {
-	Port     int    `json:"port"`
-	CertFile string `json:"cert_file"`
-	KeyFile  string `json:"key_file"`
+	Port         int    `kdl:"port"`
+	CertFile     string `kdl:"cert_file,optional"`
+	KeyFile      string `kdl:"key_file,optional"`
+	ProjectsPath string `kdl:"projects_path,optional"`
 }
 
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := kdl.NewDecoder(f).Decode(&cfg); err != nil {
 		return nil, err
 	}
 
@@ -26,9 +31,16 @@ func Load(path string) (*Config, error) {
 }
 
 func Default() *Config {
+	usr, err := user.Current()
+	projectsPath := ""
+	if err == nil {
+		projectsPath = filepath.Join(usr.HomeDir, "code")
+	}
+
 	return &Config{
-		Port:     8083,
-		CertFile: "",
-		KeyFile:  "",
+		Port:         8083,
+		CertFile:     "",
+		KeyFile:      "",
+		ProjectsPath: projectsPath,
 	}
 }

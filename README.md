@@ -1,6 +1,6 @@
-# Zelland
+# zelland
 
-**Zellij + Android = Zelland**
+**Zellij + Android = zelland**
 
 *A native Android client for Zellij terminal multiplexer*
 
@@ -10,9 +10,9 @@
 
 ---
 
-## What is Zelland?
+## What is zelland?
 
-**Zelland** is a modern Android application that brings the power of [Zellij](https://zellij.dev) terminal multiplexer to your mobile device. Built with **Jetpack Compose**, it provides a streamlined interface for connecting directly to remote Zellij web servers via HTTPS, featuring specialized terminal controls and multi-session management.
+**zelland** is a modern Android application that brings the power of [Zellij](https://zellij.dev) terminal multiplexer to your mobile device. Built with **Jetpack Compose**, it provides a streamlined interface for connecting directly to remote Zellij web servers via HTTPS, featuring specialized terminal controls and multi-session management.
 
 {}
 
@@ -51,7 +51,7 @@ o
 
 ```text
 ┌─────────────────────────────────────────────────┐
-│                  Zelland App                     │
+│                  zelland App                     │
 │  ┌───────────────────────────────────────────┐  │
 │  │          Jetpack Compose UI               │  │
 │  │      (Terminal Bar + Modifiers)           │  │
@@ -95,7 +95,7 @@ o
 
 2. **Connect**
    - Tap **"Connect"** on a session card.
-   - Zelland will verify reachability and load the terminal in the native WebView.
+   - zelland will verify reachability and load the terminal in the native WebView.
 
 3. **Navigate**
    - Use the **Shortcut Bar** for modifiers and special keys.
@@ -126,7 +126,7 @@ zelland/
 │   │   ├── MainScreen.kt      # Session list UI
 │   │   ├── TerminalScreen.kt  # Terminal UI & specialized bar
 │   │   ├── TerminalWebView.kt # Modified WebView for terminal input
-│   │   └── ZellandApp.kt      # Main Navigation logic
+│   │   └── zellandApp.kt      # Main Navigation logic
 │   ├── viewmodel/
 │   │   └── TerminalViewModel.kt # Session management logic
 │   └── model/
@@ -137,7 +137,7 @@ zelland/
 ## License
 
 ```text
-Copyright 2026 Zelland Contributors
+Copyright 2026 zelland Contributors
 Licensed under the Apache License, Version 2.0
 ```
 

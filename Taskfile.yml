@@ -1,54 +1,117 @@
-version: '3'
+version: "3"
+
+vars:
+  ADB: "$HOME/Android/Sdk/platform-tools/adb"
+  APKSIGNER: "$HOME/Android/Sdk/build-tools/36.1.0/apksigner"
+  ADDR: 10.2.1.225
 
 tasks:
   default:
-    desc: List available tasks
+    desc: "List available tasks"
     cmds:
       - task --list
 
   dev:
-    desc: Run the app in development mode (Desktop)
+    desc: "Run the app in development mode (Desktop)"
     cmds:
-      - npm run tauri dev
+      - zellij action new-pane -- task dev:daemon
+      - WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri dev
 
-  dev:android:
-    desc: Run the app in development mode (Android)
+  "dev:daemon":
+    desc: "Run the zelland daemon"
+    dir: daemon
+    cmds:
+      - go run cmd/zellandd/main.go
+
+  "dev:android":
+    desc: "Run the app in development mode (Android)"
     cmds:
       - npm run tauri android dev
 
-  build:linux:
-    desc: Build the app for Linux (Production)
+  "build:daemon":
+    desc: "Build the daemon and CLI"
+    dir: daemon
     cmds:
+      - mkdir -p ../build
+      - go build -o ../build/zellandd cmd/zellandd/main.go
+      - go build -o ../build/zelland cmd/zelland/main.go
+      - cp daemon.kdl ../build/daemon.kdl
+
+  "build:linux":
+    desc: "Build the app for Linux (Production)"
+    cmds:
+      - task: "build:daemon"
       - npm run tauri build
 
-  build:android:
-    desc: Build the app for Android (Production APK)
+  "build:android":
+    desc: "Build the app for Android (Production APK)"
+    sources:
+      - src/**/*
+      - static/**/*
+      - src-tauri/src/**/*
+      - src-tauri/Cargo.*
+      - src-tauri/tauri.conf.json
+      - src-tauri/build.rs
+      - src-tauri/binaries/**/*
+      - package.json
+      - package-lock.json
+      - svelte.config.js
+      - vite.config.js
+      - tsconfig.json
+    generates:
+      - src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
     cmds:
       - npm run tauri android build
 
-  build:
-    desc: Build for all platforms (Linux + Android)
+  "build":
+    desc: "Build for all platforms (Linux + Android)"
     cmds:
-      - task: build:linux
-      - task: build:android
+      - task: "build:linux"
+      - task: "build:android"
 
-  clean:
-    desc: Clean build artifacts
+  "clean":
+    desc: "Clean build artifacts"
     cmds:
       - rm -rf src-tauri/target
+      - rm -rf src-tauri/gen/android/app/build/outputs/apk
       - rm -rf build
-      - rm -rf src-tauri/gen
       - echo "✓ Build artifacts cleaned"
 
-  clean:all:
-    desc: Deep clean (artifacts + node_modules)
+  "clean:all":
+    desc: "Deep clean (artifacts + node_modules)"
     cmds:
-      - task: clean
+      - task: "clean"
       - rm -rf node_modules
       - echo "✓ All dependencies and artifacts cleaned"
 
-  test:
-    desc: Run tests
+  "icon":
+    desc: "Generate app icons from zelland_icon.png"
+    cmds:
+      - npm run tauri icon zelland_icon.png
+
+  "test":
+    desc: "Run tests"
     cmds:
       - npm run test
       - cd src-tauri && cargo test
+
+  "connect:android":
+    desc: "Connect to Android device wirelessly (usage: task connect:android ADDR=192.168.1.5:PORT)"
+    cmds:
+      - "{{.ADB}} connect {{.ADDR}}"
+
+  "push:android":
+    desc: "Build and push APK to connected device"
+    vars:
+      APK_PATH: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+    cmds:
+      - task: "build:android"
+      - "{{.APKSIGNER}} sign --ks my-release-key.keystore --ks-pass pass:password --key-pass pass:password {{.APK_PATH}}"
+      - "{{.ADB}} install -r {{.APK_PATH}}"
+      - echo "✓ APK pushed and installed"
+
+  "push:emu":
+    desc: "Start emulator (if not running) and push APK"
+    cmds:
+      - ./scripts/push_emu.sh
+      - task: "push:android"

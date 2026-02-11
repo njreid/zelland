@@ -15,26 +15,20 @@ class ZellandVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        // Configuration from intent
         val address = intent?.getStringExtra("address") ?: "10.0.0.2"
         val mtu = intent?.getIntExtra("mtu", 1280) ?: 1280
 
         try {
             val builder = Builder()
-                .setSession("Zelland")
+                .setSession("zelland")
                 .addAddress(address, 24)
                 .setMtu(mtu)
-                // Add routes if needed
-                // .addRoute("10.0.0.0", 24)
             
             tunnel = builder.establish()
-            Log.i("ZellandVPN", "Tunnel established: ${tunnel?.fd}")
-            
-            // Pass the FD to Rust if needed, but for now we'll just keep it alive
-            // In a real implementation, we'd use a JNI call to send tunnel.fd to Rust
+            Log.i("zellandVPN", "Tunnel established: ${tunnel?.fd}")
             
         } catch (e: Exception) {
-            Log.e("ZellandVPN", "Failed to establish tunnel", e)
+            Log.e("zellandVPN", "Failed to establish tunnel", e)
         }
 
         return START_STICKY

@@ -1,6 +1,6 @@
-# Zelland Implementation Plan: Mosh + WireGuard + Svelte 5
+# zelland Implementation Plan: Mosh + WireGuard + Svelte 5
 
-This document tracks the evolution of Zelland into a resilient mobile command center using WireGuard tunneling and Mosh for terminal persistence.
+This document tracks the evolution of zelland into a resilient mobile command center using WireGuard tunneling and Mosh for terminal persistence.
 
 ## Overview
 - **Target Platforms:** Android, Linux Desktop
@@ -16,54 +16,54 @@ This document tracks the evolution of Zelland into a resilient mobile command ce
 ## Milestones
 
 ### Phase 1: Networking Core (Rust)
-- [ ] **Write Tests (Rust)**: Setup unit tests for network packet logic in `src-tauri/src/network.rs`.
-- [ ] **WireGuard Integration (GotaTun)**
-    - [ ] Add `boringtun` or `gotatun` dependency to `src-tauri`.
-    - [ ] Implement userspace packet loop in `src-tauri/src/network.rs`.
-    - [ ] Create Tauri command `start_tunnel(config)` to bring up the interface.
-    - [ ] **Test:** Verify handshake and keep-alive with a mock peer.
-- [ ] **Mosh Integration**
-    - [ ] Research: Bundle `mosh-client` binary (Android) vs. link `libmosh` (iOS/Rust).
-    - [ ] Implement `src-tauri/src/mosh.rs` to spawn Mosh inside the WG tunnel.
-    - [ ] Bridge Mosh output to frontend events (`mosh-data`).
-    - [ ] **Test:** Ensure Mosh traffic flows through the userspace tunnel.
-- [ ] **Run Tests**: Execute `cargo test` to verify networking logic.
+- [x] **Write Tests (Rust)**: Setup unit tests for network packet logic in `src-tauri/src/network.rs`.
+- [x] **WireGuard Integration (GotaTun)**
+    - [x] Add `boringtun` or `gotatun` dependency to `src-tauri`.
+    - [x] Implement userspace packet loop in `src-tauri/src/network.rs`.
+    - [x] Create Tauri command `start_tunnel(config)` to bring up the interface.
+    - [x] **Test:** Verify handshake and keep-alive with a mock peer.
+- [x] **Mosh Integration**
+    - [x] Research: Bundle `mosh-client` binary (Android) vs. link `libmosh` (iOS/Rust).
+    - [x] Implement `src-tauri/src/mosh.rs` to spawn Mosh inside the WG tunnel.
+    - [x] Bridge Mosh output to frontend events (`mosh-data`).
+    - [x] **Test:** Ensure Mosh traffic flows through the userspace tunnel.
+- [x] **Run Tests**: Execute `cargo test` to verify networking logic.
 
 ### Phase 2: Daemon & Project API
-- [ ] **Write Tests (API)**: Create mock daemon responses and client contract tests.
-- [ ] **Daemon Updates (zellandd)**
-    - [ ] Define `Project` KDL schema (host, session_name, root_path).
-    - [ ] Implement REST endpoints:
+- [x] **Write Tests (API)**: Create mock daemon responses and client contract tests.
+- [x] **Daemon Updates (zellandd)**
+    - [x] Define `Project` KDL schema (host, session_name, root_path).
+    - [x] Implement REST endpoints:
         - `GET /projects`: List available projects.
         - `POST /projects/activate`: Start/Attach Zellij session.
         - `GET /fs/read`: Read file content (for Markdown previews).
-- [ ] **Client API Bridge**
-    - [ ] Implement local HTTP proxy in Tauri (`axum` or similar) to forward requests through WG.
-    - [ ] Create Svelte API client (`src/lib/api.ts`) to talk to the local proxy.
-- [ ] **Run Tests**: Execute client API contract tests.
+- [x] **Client API Bridge**
+    - [x] Implement local HTTP proxy in Tauri (`axum` or similar) to forward requests through WG.
+    - [x] Create Svelte API client (`src/lib/api.ts`) to talk to the local proxy.
+- [x] **Run Tests**: Execute client API contract tests.
 
 ### Phase 3: Svelte 5 UI Overhaul
-- [ ] **Write Tests (UI)**: Setup Component tests for Layout and State logic.
-- [ ] **Reactive State**
-    - [ ] Create `src/lib/stores/project.svelte.ts` using Runes for project/connection state.
-- [ ] **Infinite Ribbon Layout**
-    - [ ] Implement `src/routes/+page.svelte` with CSS Snap Scroll.
-    - [ ] Create `Pane.svelte` wrapper component.
-- [ ] **Markdown Previews**
-    - [ ] Build `MarkdownPane.svelte` fetching content from `currentProject`.
-    - [ ] Integrate a markdown renderer (e.g., `markdown-it` or `marked`).
-- [ ] **Refine Terminal**
-    - [ ] Update `Terminal.svelte` to consume Mosh stream instead of raw SSH.
-    - [ ] Implement "Gesture Lock" to prevent scroll conflicts.
-- [ ] **Run Tests**: Execute `npm run test` for UI components.
+- [x] **Write Tests (UI)**: Setup Component tests for Layout and State logic.
+- [x] **Reactive State**
+    - [x] Create `src/lib/stores/project.svelte.ts` using Runes for project/connection state.
+- [x] **Infinite Ribbon Layout**
+    - [x] Implement `src/routes/+page.svelte` with CSS Snap Scroll.
+    - [x] Create `Pane.svelte` wrapper component (Merged into Page/MarkdownPane).
+- [x] **Markdown Previews**
+    - [x] Build `MarkdownPane.svelte` fetching content from `currentProject`.
+    - [x] Integrate a markdown renderer (e.g., `markdown-it` or `marked`).
+- [x] **Refine Terminal**
+    - [x] Update `Terminal.svelte` to consume Mosh stream instead of raw SSH.
+    - [x] Implement "Gesture Lock" to prevent scroll conflicts.
+- [x] **Run Tests**: Execute `npm run test` for UI components.
 
 ### Phase 4: Mobile Specifics
-- [ ] **Android VPN Service**
-    - [ ] Update `AndroidManifest.xml` for `BIND_VPN_SERVICE`.
-    - [ ] Implement Kotlin side to allow userspace Tun via Tauri.
-- [ ] **Background Persistence**
-    - [ ] Ensure WG tunnel stays alive when app is backgrounded.
+- [x] **Android VPN Service**
+    - [x] Update `AndroidManifest.xml` for `BIND_VPN_SERVICE`.
+    - [x] Implement Kotlin side to allow userspace Tun via Tauri.
+- [x] **Background Persistence**
+    - [x] Ensure WG tunnel stays alive when app is backgrounded.
 
 ### Phase 5: Verification
-- [ ] **Unit Tests**: Rust networking logic, Svelte state logic.
-- [ ] **E2E**: Verify full flow: App Open -> Tunnel Up -> Project List -> Connect -> Terminal Active.
+- [x] **Unit Tests**: Rust networking logic, Svelte state logic.
+- [x] **E2E**: Verify full flow: App Open -> Tunnel Up -> Project List -> Connect -> Terminal Active.
