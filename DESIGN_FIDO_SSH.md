@@ -49,8 +49,8 @@ Since `russh` and standard OpenSSH servers expect standard key formats, we have 
 - **Transport**: WireGuard (UDP).
 - **Layering**: SSH runs *inside* the WireGuard tunnel.
 - **Authentication**:
-  -   **WireGuard**: Static keys (configured once).
-  -   **SSH**: Same FIDO/Biometric flow as "Session", but connecting to the internal WireGuard IP of the host.
+  - **WireGuard**: Static keys (configured once).
+  - **SSH**: Same FIDO/Biometric flow as "Session", but connecting to the internal WireGuard IP of the host.
 
 ### 3. User Experience (UX) flow
 
@@ -67,7 +67,7 @@ Since `russh` and standard OpenSSH servers expect standard key formats, we have 
 
 1. User taps a **Session** or **Host** in the Sidebar.
 2. If the Host uses WireGuard:
-    -   App starts WireGuard tunnel (if not active).
+   -   App starts WireGuard tunnel (if not active).
 3. App initiates SSH connection.
 4. **System Biometric Prompt** appears: "Verify identity to connect to [Host Label]".
 5. User authenticates (Face/Touch).
@@ -86,8 +86,8 @@ Since `russh` and standard OpenSSH servers expect standard key formats, we have 
 #### Android Layer (Kotlin)
 
 - Implement `KeyStoreManager`:
-  -   `generateKey(alias: String)`
-  -   `getSigner(alias: String, biometricPrompt: Boolean)`
+  - `generateKey(alias: String)`
+  - `getSigner(alias: String, biometricPrompt: Boolean)`
 - Expose these via JNI or Tauri Plugin command to Rust.
 
 #### FIDO/SK Specifics (`ed25519-sk`)

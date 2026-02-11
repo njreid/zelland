@@ -74,6 +74,15 @@ async fn list_ssh_keys(app_handle: AppHandle) -> Result<Vec<crate::keystore::Key
     manager.list_identities().await
 }
 
+#[tauri::command]
+async fn delete_ssh_key(app_handle: AppHandle, id: String) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    let manager = crate::keystore::AndroidKeyManager::new(&app_handle);
+    #[cfg(not(target_os = "android"))]
+    let manager = StandardKeyManager::new(&app_handle);
+    manager.delete_identity(id).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -113,6 +122,7 @@ pub fn run() {
             network::stop_tunnel,
             generate_ssh_key,
             list_ssh_keys,
+            delete_ssh_key,
             close_window
         ])
         .run(tauri::generate_context!())

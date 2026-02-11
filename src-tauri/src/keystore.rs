@@ -140,9 +140,14 @@ impl KeyManager for AndroidKeyManager {
     }
 
     async fn sign(&self, id: String, data: &[u8], reason: String) -> Result<Vec<u8>, String> {
-        // Trigger Biometric Prompt via JNI before signing
-        // This is where we'd call MainActivity.authenticate
-        Err("Biometric signing not fully implemented via JNI yet".to_string())
+        // Trigger Biometric Prompt via frontend or internal event
+        // This is a complex flow because the SSH handshake is happening in a background thread.
+        // We might need to use a oneshot channel to wait for the biometric result.
+        
+        info!("Requesting biometric authentication for signing with key: {}", id);
+        
+        // For now, return error as we need to wire up the async callback from Kotlin
+        Err("Biometric signing bridge not fully wired up".to_string())
     }
 }
 

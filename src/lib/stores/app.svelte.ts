@@ -219,6 +219,16 @@ function createAppState() {
             }
         },
 
+        async deleteSshKey(id: string) {
+            try {
+                await invoke("delete_ssh_key", { id });
+                await fetchSshKeys();
+            } catch (e) {
+                console.error("Failed to delete SSH key:", e);
+                log(`Failed to delete SSH key: ${e}`, 'error');
+            }
+        },
+
         async fetchSshKeys() {
             await fetchSshKeys();
         },

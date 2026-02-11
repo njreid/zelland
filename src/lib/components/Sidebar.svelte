@@ -165,9 +165,14 @@
                                 <li class="key-item mb-2">
                                     <div class="flex-row justify-between">
                                         <span class="text-sm">{key.label}</span>
-                                        <button class="secondary icon-only-tiny" onclick={() => navigator.clipboard.writeText(key.public_key)} title="Copy Public Key">
-                                            <Play size={10} />
-                                        </button>
+                                        <div class="flex-row gap-1">
+                                            <button class="secondary icon-only-tiny" onclick={() => navigator.clipboard.writeText(key.public_key)} title="Copy Public Key">
+                                                <Play size={10} />
+                                            </button>
+                                            <button class="secondary hover-error icon-only-tiny" onclick={() => appState.deleteSshKey(key.id)} title="Delete Key">
+                                                <Trash2 size={10} />
+                                            </button>
+                                        </div>
                                     </div>
                                     <div class="text-xs secondary truncate" style="max-width: 180px;">{key.public_key}</div>
                                 </li>
