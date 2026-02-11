@@ -1,10 +1,12 @@
 <script lang="ts">
     import { appState } from '$lib/stores/app.svelte';
-    import { Plus, Server, Terminal, AlertCircle, Globe, Play, Monitor, X, Trash2, Circle, Settings } from 'lucide-svelte';
+    import { Plus, Server, Terminal, AlertCircle, Globe, Play, Monitor, X, Trash2, Circle, Settings, Copy, Key } from 'lucide-svelte';
 
     let showAddHost = $state(false);
     let showAddSession = $state(false);
     let showSettings = $state(false);
+    let newKeyLabel = $state('');
+    let showKeyForm = $state(false);
     
     // Host form
     let newHostAddress = $state('');
@@ -16,8 +18,9 @@
     let newSessionHost = $state('');
     let newSessionUser = $state('');
     let newSessionPass = $state('');
-    let newSessionAuthMethod = $state<'Password' | 'Key'>('Password');
+    let newSessionAuthMethod = $state<'Password' | 'Key' | 'PrivateKey'>('Password');
     let newSessionKeyId = $state('');
+    let newSessionPrivateKeyPath = $state('');
 
     async function handleAddHost() {
         if (newHostAddress && newHostUser) {
@@ -34,13 +37,14 @@
     async function handleAddSession() {
         if (newSessionName && newSessionHost && newSessionUser) {
             await appState.addSession(
-                newSessionName, 
-                newSessionHost, 
-                newSessionUser, 
-                'ssh', 
-                newSessionName, 
+                newSessionName,
+                newSessionHost,
+                newSessionUser,
+                'ssh',
+                newSessionName,
                 newSessionAuthMethod === 'Password' ? newSessionPass : undefined,
-                newSessionAuthMethod === 'Key' ? newSessionKeyId : undefined
+                newSessionAuthMethod === 'Key' ? newSessionKeyId : undefined,
+                newSessionAuthMethod === 'PrivateKey' ? newSessionPrivateKeyPath : undefined
             );
             resetSessionForm();
             const sessions = appState.sessions;
@@ -55,6 +59,7 @@
 
     function resetSessionForm() {
         newSessionName = ''; newSessionHost = ''; newSessionUser = ''; newSessionPass = '';
+        newSessionPrivateKeyPath = ''; newSessionKeyId = '';
         showAddSession = false;
     }
 
@@ -108,17 +113,20 @@
                 <select bind:value={newSessionAuthMethod} aria-label="Auth Method">
                     <option value="Password">Password</option>
                     <option value="Key">SSH Identity</option>
+                    <option value="PrivateKey">Private Key File</option>
                 </select>
 
                 {#if newSessionAuthMethod === 'Password'}
                     <input type="password" placeholder="Password" bind:value={newSessionPass} aria-label="Password" />
-                {:else}
+                {:else if newSessionAuthMethod === 'Key'}
                     <select bind:value={newSessionKeyId} aria-label="SSH Identity" required>
                         <option value="" disabled selected>Select Identity...</option>
                         {#each appState.sshKeys as key}
                             <option value={key.id}>{key.label}</option>
                         {/each}
                     </select>
+                {:else if newSessionAuthMethod === 'PrivateKey'}
+                    <input type="text" placeholder="~/.ssh/id_ed25519" bind:value={newSessionPrivateKeyPath} aria-label="Private Key Path" required />
                 {/if}
 
                 <div class="grid">
@@ -152,11 +160,22 @@
                 <div class="ssh-keys-section">
                     <div class="flex-row justify-between mb-2">
                         <small>SSH IDENTITIES</small>
-                        <button class="outline contrast icon-only-tiny" onclick={() => appState.generateSshKey('My Phone')} title="Generate New Key">
+                        <button class="outline contrast icon-only-tiny" onclick={() => { showKeyForm = !showKeyForm; }} title="Generate New Key">
                             <Plus size={14} />
                         </button>
                     </div>
-                    
+
+                    {#if showKeyForm}
+                        <form class="key-gen-form" onsubmit={(e) => { e.preventDefault(); if (newKeyLabel.trim()) { appState.generateSshKey(newKeyLabel.trim()); newKeyLabel = ''; showKeyForm = false; } }}>
+                            <div class="flex-row gap-1">
+                                <input type="text" placeholder="Key label" bind:value={newKeyLabel} aria-label="Key Label" required style="margin-bottom: 0; font-size: 0.8rem; padding: 0.3rem;" />
+                                <button type="submit" style="margin-bottom: 0; padding: 0.3rem 0.5rem; font-size: 0.8rem; white-space: nowrap;">
+                                    <Key size={12} />
+                                </button>
+                            </div>
+                        </form>
+                    {/if}
+
                     {#if appState.sshKeys.length === 0}
                         <p class="text-xs secondary">No keys generated yet.</p>
                     {:else}
@@ -164,17 +183,17 @@
                             {#each appState.sshKeys as key}
                                 <li class="key-item mb-2">
                                     <div class="flex-row justify-between">
-                                        <span class="text-sm">{key.label}</span>
+                                        <span class="text-sm"><Key size={10} /> {key.label}</span>
                                         <div class="flex-row gap-1">
-                                            <button class="secondary icon-only-tiny" onclick={() => navigator.clipboard.writeText(key.public_key)} title="Copy Public Key">
-                                                <Play size={10} />
+                                            <button class="secondary icon-only-tiny" onclick={() => { navigator.clipboard.writeText('ssh-ed25519 ' + key.public_key); }} title="Copy Public Key">
+                                                <Copy size={10} />
                                             </button>
                                             <button class="secondary hover-error icon-only-tiny" onclick={() => appState.deleteSshKey(key.id)} title="Delete Key">
                                                 <Trash2 size={10} />
                                             </button>
                                         </div>
                                     </div>
-                                    <div class="text-xs secondary truncate" style="max-width: 180px;">{key.public_key}</div>
+                                    <div class="text-xs secondary truncate" style="max-width: 180px;">ssh-ed25519 {key.public_key}</div>
                                 </li>
                             {/each}
                         </ul>

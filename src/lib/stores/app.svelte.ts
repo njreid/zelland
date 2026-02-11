@@ -32,6 +32,7 @@ export interface Session {
     type: 'ssh';
     zellijSession: string;
     key_id?: string;
+    private_key_path?: string;
     status: 'disconnected' | 'connecting' | 'connected' | 'error';
 }
 
@@ -120,8 +121,8 @@ function createAppState() {
             const hostsToSave = state.hosts.map(({ id, label, address, username, password }) => ({
                 id, label, address, username, password
             }));
-            const sessionsToSave = state.sessions.map(({ id, label, hostAddress, username, password, port, type, zellijSession }) => ({
-                id, label, hostAddress, username, password, port, type, zellijSession
+            const sessionsToSave = state.sessions.map(({ id, label, hostAddress, username, password, port, type, zellijSession, key_id, private_key_path }) => ({
+                id, label, hostAddress, username, password, port, type, zellijSession, key_id, private_key_path
             }));
 
             await store.set("hosts", hostsToSave);
@@ -170,6 +171,33 @@ function createAppState() {
 
     listen("tunnel-error", (event) => {
         log(`Tunnel error: ${event.payload}`, 'error');
+    });
+
+    // Listen for biometric authentication requests from the Rust backend (Android)
+    listen("biometric-request", async (event: any) => {
+        const request = event.payload;
+        log(`Biometric auth requested for key: ${request.key_id}`);
+        try {
+            // On Android, this would trigger the native BiometricPrompt via JNI.
+            // The result is sent back to Rust via the biometric_result command.
+            // For now on desktop, we auto-approve (no biometric hardware).
+            await invoke("biometric_result", {
+                response: {
+                    request_id: request.request_id,
+                    success: true,
+                    error: null
+                }
+            });
+        } catch (e) {
+            console.error("Failed to handle biometric request:", e);
+            await invoke("biometric_result", {
+                response: {
+                    request_id: request.request_id,
+                    success: false,
+                    error: String(e)
+                }
+            });
+        }
     });
 
     return {
@@ -282,12 +310,13 @@ function createAppState() {
             await this.connectSession(sessionId);
         },
 
-        async addSession(label: string, hostAddress: string, username: string, type: 'ssh', zellijSession: string, password?: string, keyId?: string) {
+        async addSession(label: string, hostAddress: string, username: string, type: 'ssh', zellijSession: string, password?: string, keyId?: string, privateKeyPath?: string) {
             const id = crypto.randomUUID();
             state.sessions.push({
                 id, label, hostAddress, username, password,
                 port: 22, type, zellijSession, status: 'disconnected',
-                key_id: keyId
+                key_id: keyId,
+                private_key_path: privateKeyPath
             });
             await saveToStore();
         },
@@ -314,15 +343,18 @@ function createAppState() {
             log(`Connecting to session: ${session.label}...`);
 
             try {
+                const authMethod = session.key_id ? "Key" : session.private_key_path ? "PrivateKey" : "Password";
                 await invoke('ssh_connect', {
                     tabId: session.id,
                     config: {
                         host: session.hostAddress,
                         port: session.port,
                         username: session.username,
-                        auth_method: session.key_id ? "Key" : "Password",
-                        password: session.password || "",
-                        key_id: session.key_id,
+                        auth_method: authMethod,
+                        password: session.password || null,
+                        private_key_path: session.private_key_path || null,
+                        private_key_passphrase: null,
+                        key_id: session.key_id || null,
                         session_name: session.zellijSession
                     }
                 });
@@ -361,13 +393,16 @@ function createAppState() {
             const session = state.sessions.find(s => s.id === sessionId);
             if (!session) return;
 
+            const authMethod = session.key_id ? "Key" : session.private_key_path ? "PrivateKey" : "Password";
             const config = {
                 host: session.hostAddress,
                 port: session.port,
                 username: session.username,
-                auth_method: session.key_id ? "Key" : "Password",
-                password: session.password || "",
-                key_id: session.key_id,
+                auth_method: authMethod,
+                password: session.password || null,
+                private_key_path: session.private_key_path || null,
+                private_key_passphrase: null,
+                key_id: session.key_id || null,
                 session_name: session.zellijSession
             };
 
