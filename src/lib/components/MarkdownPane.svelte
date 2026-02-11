@@ -71,7 +71,6 @@
 <style>
     .markdown-pane {
         padding: 1rem;
-        height: 100%;
-        overflow-y: auto;
+        min-height: 100%;
     }
 </style>

@@ -31,8 +31,7 @@
         term.loadAddon(fitAddon);
         term.open(terminalElement);
         
-        // Use ResizeObserver for robust fitting
-        resizeObserver = new ResizeObserver(() => {
+        function doFitAndResize() {
             if (terminalElement.clientWidth > 0 && terminalElement.clientHeight > 0) {
                 fitAddon.fit();
                 const dims = fitAddon.proposeDimensions();
@@ -40,8 +39,16 @@
                     appState.resize(tabId, dims.rows, dims.cols);
                 }
             }
-        });
+        }
+
+        // Use ResizeObserver for robust fitting
+        resizeObserver = new ResizeObserver(doFitAndResize);
         resizeObserver.observe(terminalElement);
+
+        // Backup: window resize event catches cases ResizeObserver misses
+        // (e.g. vertical-only resizes in some WebKit builds)
+        const onWindowResize = () => doFitAndResize();
+        window.addEventListener('resize', onWindowResize);
 
         term.onData(async (data) => {
             const encoder = new TextEncoder();
@@ -58,6 +65,7 @@
 
         return () => {
             if (resizeObserver) resizeObserver.disconnect();
+            window.removeEventListener('resize', onWindowResize);
         };
     });
 

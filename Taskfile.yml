@@ -14,7 +14,7 @@ tasks:
   dev:
     desc: "Run the app in development mode (Desktop)"
     cmds:
-      - zellij action new-pane -- task dev:daemon
+      - zellij action new-pane -- fish -c "task dev:daemon"
       - WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri dev
 
   "dev:daemon":

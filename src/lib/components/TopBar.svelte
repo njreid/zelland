@@ -15,9 +15,11 @@
     }
 
     function sendZellijTab(n: number) {
+        // Use Ctrl+T key sequence through the active SSH channel — faster and more
+        // reliable than spawning a separate SSH connection for `zellij action go-to-tab`.
         const seq = `\x14${n}`;
         sendKey(seq);
-        onScrollToPane(0); // Ensure we are on terminal pane when switching zellij tabs
+        onScrollToPane(0);
     }
 
     async function closeWindow() {

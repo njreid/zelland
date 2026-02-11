@@ -107,6 +107,18 @@ This document tracks the evolution of zelland into a resilient mobile command ce
 - [x] **Unit Tests**: Rust networking logic, Svelte state logic.
 - [x] **E2E**: Verify full flow: App Open -> Tunnel Up -> Project List -> Connect -> Terminal Active.
 
+### Future: Zellij Action Buttons
+Expose `zellij -s $SESSION action <action>` via `runZellijAction()` as UI buttons (TopBar for desktop, VirtualKeyboard for mobile).
+
+- [ ] `new-tab` / `close-tab` — tab lifecycle
+- [ ] `go-to-next-tab` / `go-to-previous-tab` — cycle tabs (better than numbered for >3 tabs)
+- [ ] `toggle-fullscreen` — maximize/restore focused pane (very useful on small screens)
+- [ ] `toggle-floating-panes` — show/hide floating panes
+- [ ] `new-pane` / `close-pane` — pane lifecycle
+- [ ] `focus-next-pane` / `focus-previous-pane` — navigate between panes
+- [ ] `toggle-pane-embed-or-floating` — float/embed toggle
+- [ ] `edit-scrollback` — open scrollback in `$EDITOR`
+
 ### Deprecated / Removed
 - ~~Mosh Integration~~: Removed due to Android binary execution restrictions and complexity.
 - ~~Mosh Output Bridge~~: Removed.
