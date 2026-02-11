@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use tauri::Manager;
 use log::info;
 use russh_keys::PublicKeyBase64;
+use zeroize::Zeroizing;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct KeyIdentity {
@@ -44,6 +45,44 @@ impl StandardKeyManager {
         std::fs::create_dir_all(&base_path).ok();
         Self { base_path }
     }
+
+    /// Load or generate the master passphrase used to encrypt keys at rest.
+    fn master_passphrase(&self) -> Result<Zeroizing<String>, String> {
+        let passphrase_path = self.base_path.join("master.key");
+        if passphrase_path.exists() {
+            let raw = std::fs::read_to_string(&passphrase_path).map_err(|e| e.to_string())?;
+            Ok(Zeroizing::new(raw.trim().to_string()))
+        } else {
+            let passphrase = uuid::Uuid::new_v4().to_string();
+            std::fs::write(&passphrase_path, &passphrase).map_err(|e| e.to_string())?;
+            // Restrict file permissions on Unix
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&passphrase_path, std::fs::Permissions::from_mode(0o600)).ok();
+            }
+            Ok(Zeroizing::new(passphrase))
+        }
+    }
+
+    /// Decrypt a private key from an OpenSSH-format file using the master passphrase.
+    fn load_decrypted_key(&self, id: &str) -> Result<ssh_key::PrivateKey, String> {
+        let priv_path = self.base_path.join(format!("{}.priv", id));
+        let key_str = Zeroizing::new(
+            std::fs::read_to_string(&priv_path)
+                .map_err(|e| format!("Failed to read key {}: {}", id, e))?
+        );
+        let encrypted_key = ssh_key::PrivateKey::from_openssh(&*key_str)
+            .map_err(|e| format!("Failed to parse key: {}", e))?;
+
+        if encrypted_key.is_encrypted() {
+            let passphrase = self.master_passphrase()?;
+            encrypted_key.decrypt(passphrase.as_bytes())
+                .map_err(|e| format!("Failed to decrypt key: {}", e))
+        } else {
+            Ok(encrypted_key)
+        }
+    }
 }
 
 #[async_trait]
@@ -56,9 +95,19 @@ impl KeyManager for StandardKeyManager {
         let priv_path = self.base_path.join(format!("{}.priv", id));
         let meta_path = self.base_path.join(format!("{}.json", id));
 
-        let pem = key.to_openssh(ssh_key::LineEnding::LF)
+        // Encrypt the private key at rest with the master passphrase
+        let passphrase = self.master_passphrase()?;
+        let encrypted_key = key.encrypt(&mut rand::rngs::OsRng, passphrase.as_bytes())
+            .map_err(|e| format!("Failed to encrypt private key: {}", e))?;
+        let pem = encrypted_key.to_openssh(ssh_key::LineEnding::LF)
             .map_err(|e| format!("Failed to encode private key: {}", e))?;
         std::fs::write(&priv_path, pem.as_bytes()).map_err(|e| e.to_string())?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&priv_path, std::fs::Permissions::from_mode(0o600)).ok();
+        }
 
         let identity = KeyIdentity {
             id: id.clone(),
@@ -98,11 +147,7 @@ impl KeyManager for StandardKeyManager {
     }
 
     async fn sign(&self, id: String, data: &[u8], _reason: String) -> Result<Vec<u8>, String> {
-        let priv_path = self.base_path.join(format!("{}.priv", id));
-        let key_str = std::fs::read_to_string(&priv_path)
-            .map_err(|e| format!("Failed to read key {}: {}", id, e))?;
-        let key = ssh_key::PrivateKey::from_openssh(&key_str)
-            .map_err(|e| format!("Failed to parse key: {}", e))?;
+        let key = self.load_decrypted_key(&id)?;
 
         match key.key_data() {
             ssh_key::private::KeypairData::Ed25519(kp) => {
@@ -203,11 +248,16 @@ mod tests {
         // Public key should be base64-decodable
         assert!(!identity.public_key.is_empty());
 
-        // Private key file should be readable and decodable by russh
+        // Private key file is encrypted at rest
         let priv_path = tmp.path().join("keys").join(format!("{}.priv", identity.id));
-        let key_str = std::fs::read_to_string(priv_path).unwrap();
-        let decoded = russh::keys::decode_secret_key(&key_str, None);
-        assert!(decoded.is_ok(), "Private key should be decodable");
+        let key_str = std::fs::read_to_string(&priv_path).unwrap();
+        let encrypted = ssh_key::PrivateKey::from_openssh(&key_str).unwrap();
+        assert!(encrypted.is_encrypted(), "Key should be encrypted at rest");
+
+        // Should be decodable with the master passphrase
+        let passphrase = mgr.master_passphrase().unwrap();
+        let decoded = russh::keys::decode_secret_key(&key_str, Some(&passphrase));
+        assert!(decoded.is_ok(), "Private key should be decodable with passphrase");
     }
 
     #[tokio::test]
@@ -307,11 +357,9 @@ mod tests {
         // ed25519 signatures are 64 bytes
         assert_eq!(sig_bytes.len(), 64);
 
-        // Verify the signature using the public key
-        let priv_path = tmp.path().join("keys").join(format!("{}.priv", identity.id));
-        let key_str = std::fs::read_to_string(priv_path).unwrap();
-        let key = ssh_key::PrivateKey::from_openssh(&key_str).unwrap();
-        if let ssh_key::private::KeypairData::Ed25519(kp) = key.key_data() {
+        // Verify the signature using the decrypted key's public component
+        let decrypted = mgr.load_decrypted_key(&identity.id).unwrap();
+        if let ssh_key::private::KeypairData::Ed25519(kp) = decrypted.key_data() {
             use ed25519_dalek::Verifier;
             let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(kp.public.as_ref()).unwrap();
             let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes.try_into().unwrap());
@@ -383,9 +431,40 @@ mod tests {
         let identity = mgr.generate_key("roundtrip-key".to_string()).await.unwrap();
         let priv_path = tmp.path().join("keys").join(format!("{}.priv", identity.id));
 
-        // Verify the file can be decoded by russh (same path PrivateKey auth uses)
+        // Verify the file can be decoded by russh with the passphrase (same path SSH auth uses)
         let key_str = std::fs::read_to_string(&priv_path).unwrap();
-        let key = russh::keys::decode_secret_key(&key_str, None);
-        assert!(key.is_ok(), "Generated key should be decodable by russh: {:?}", key.err());
+        let passphrase = mgr.master_passphrase().unwrap();
+        let key = russh::keys::decode_secret_key(&key_str, Some(&passphrase));
+        assert!(key.is_ok(), "Generated key should be decodable by russh with passphrase: {:?}", key.err());
+
+        // Without passphrase should fail
+        let no_pass = russh::keys::decode_secret_key(&key_str, None);
+        assert!(no_pass.is_err(), "Encrypted key should not decode without passphrase");
+    }
+
+    #[tokio::test]
+    async fn test_master_passphrase_created_and_reused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        let pass1 = mgr.master_passphrase().unwrap();
+        let pass2 = mgr.master_passphrase().unwrap();
+        assert_eq!(*pass1, *pass2, "Same passphrase should be returned on repeated calls");
+        assert!(!pass1.is_empty());
+
+        // Verify the file exists
+        assert!(tmp.path().join("keys").join("master.key").exists());
+    }
+
+    #[tokio::test]
+    async fn test_load_decrypted_key_works() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        let identity = mgr.generate_key("decrypt-test".to_string()).await.unwrap();
+        let key = mgr.load_decrypted_key(&identity.id).unwrap();
+
+        assert!(!key.is_encrypted(), "Decrypted key should not be encrypted");
+        assert!(matches!(key.key_data(), ssh_key::private::KeypairData::Ed25519(_)));
     }
 }

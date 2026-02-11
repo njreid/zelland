@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use log::{info, error, debug};
 use tauri::Manager;
+use zeroize::Zeroizing;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum AuthMethod {
@@ -61,9 +62,19 @@ fn load_private_key(config: &SshConfig, app_handle: &tauri::AppHandle) -> Result
             let key_id = config.key_id.as_deref().ok_or("Key ID is required")?;
             let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
             let priv_path = base_path.join(format!("{}.priv", key_id));
-            let key_str = std::fs::read_to_string(&priv_path)
-                .map_err(|e| format!("Failed to read key file: {}", e))?;
-            russh::keys::decode_secret_key(&key_str, None)
+            let key_str = Zeroizing::new(
+                std::fs::read_to_string(&priv_path)
+                    .map_err(|e| format!("Failed to read key file: {}", e))?
+            );
+            // Read master passphrase for decryption
+            let passphrase_path = base_path.join("master.key");
+            let passphrase = if passphrase_path.exists() {
+                let raw = std::fs::read_to_string(&passphrase_path).map_err(|e| e.to_string())?;
+                Some(Zeroizing::new(raw.trim().to_string()))
+            } else {
+                None
+            };
+            russh::keys::decode_secret_key(&key_str, passphrase.as_deref().map(|s| s.as_str()))
                 .map_err(|e| format!("Failed to decode key: {}", e))
         }
         AuthMethod::Password => {
