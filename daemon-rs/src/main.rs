@@ -29,6 +29,8 @@ async fn main() {
 
     config.merge(args.port, None);
 
-    tracing::info!("zellandd starting on port {}", config.port);
-    tracing::info!("Projects path: {}", config.projects_path.display());
+    if let Err(e) = zelland_daemon::server::run(config).await {
+        tracing::error!("Server error: {}", e);
+        std::process::exit(1);
+    }
 }
