@@ -97,15 +97,23 @@ impl KeyManager for StandardKeyManager {
         Ok(())
     }
 
-    async fn sign(&self, id: String, _data: &[u8], _reason: String) -> Result<Vec<u8>, String> {
+    async fn sign(&self, id: String, data: &[u8], _reason: String) -> Result<Vec<u8>, String> {
         let priv_path = self.base_path.join(format!("{}.priv", id));
-        let key_str = std::fs::read_to_string(priv_path).map_err(|e| e.to_string())?;
-        let _key = russh::keys::decode_secret_key(&key_str, None).map_err(|e| e.to_string())?;
-        
-        // This is a simplified signing for ed25519
-        // Russh usually handles this in the handshake, but we might need manual signing for FIDO
-        // For now, return error as we'll integrate with russh's own key management first
-        Err("Direct signing not implemented yet".to_string())
+        let key_str = std::fs::read_to_string(&priv_path)
+            .map_err(|e| format!("Failed to read key {}: {}", id, e))?;
+        let key = ssh_key::PrivateKey::from_openssh(&key_str)
+            .map_err(|e| format!("Failed to parse key: {}", e))?;
+
+        match key.key_data() {
+            ssh_key::private::KeypairData::Ed25519(kp) => {
+                use ed25519_dalek::Signer;
+                let signing_key: ed25519_dalek::SigningKey = kp.try_into()
+                    .map_err(|e: ssh_key::Error| format!("Key conversion failed: {}", e))?;
+                let signature = signing_key.sign(data);
+                Ok(signature.to_bytes().to_vec())
+            }
+            _ => Err("Only ed25519 keys are supported for signing".to_string()),
+        }
     }
 }
 
@@ -285,6 +293,42 @@ mod tests {
         assert_eq!(deserialized.label, identity.label);
         assert_eq!(deserialized.public_key, identity.public_key);
         assert_eq!(deserialized.created_at, identity.created_at);
+    }
+
+    #[tokio::test]
+    async fn test_sign_produces_valid_signature() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        let identity = mgr.generate_key("sign-key".to_string()).await.unwrap();
+        let data = b"hello world";
+        let sig_bytes = mgr.sign(identity.id.clone(), data, "test".to_string()).await.unwrap();
+
+        // ed25519 signatures are 64 bytes
+        assert_eq!(sig_bytes.len(), 64);
+
+        // Verify the signature using the public key
+        let priv_path = tmp.path().join("keys").join(format!("{}.priv", identity.id));
+        let key_str = std::fs::read_to_string(priv_path).unwrap();
+        let key = ssh_key::PrivateKey::from_openssh(&key_str).unwrap();
+        if let ssh_key::private::KeypairData::Ed25519(kp) = key.key_data() {
+            use ed25519_dalek::Verifier;
+            let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(kp.public.as_ref()).unwrap();
+            let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes.try_into().unwrap());
+            assert!(verifying_key.verify(data, &signature).is_ok());
+        } else {
+            panic!("Expected Ed25519 key");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sign_nonexistent_key_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        let result = mgr.sign("no-such-key".to_string(), b"data", "test".to_string()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read key"));
     }
 
     #[tokio::test]
