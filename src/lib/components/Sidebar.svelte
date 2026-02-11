@@ -16,6 +16,8 @@
     let newSessionHost = $state('');
     let newSessionUser = $state('');
     let newSessionPass = $state('');
+    let newSessionAuthMethod = $state<'Password' | 'Key'>('Password');
+    let newSessionKeyId = $state('');
 
     async function handleAddHost() {
         if (newHostAddress && newHostUser) {
@@ -31,7 +33,15 @@
 
     async function handleAddSession() {
         if (newSessionName && newSessionHost && newSessionUser) {
-            await appState.addSession(newSessionName, newSessionHost, newSessionUser, 'ssh', newSessionName, newSessionPass);
+            await appState.addSession(
+                newSessionName, 
+                newSessionHost, 
+                newSessionUser, 
+                'ssh', 
+                newSessionName, 
+                newSessionAuthMethod === 'Password' ? newSessionPass : undefined,
+                newSessionAuthMethod === 'Key' ? newSessionKeyId : undefined
+            );
             resetSessionForm();
             const sessions = appState.sessions;
             const newSession = sessions[sessions.length - 1];
@@ -94,7 +104,23 @@
                 <input type="text" placeholder="Name" bind:value={newSessionName} aria-label="Name" required />
                 <input type="text" placeholder="Host Address" bind:value={newSessionHost} aria-label="Host Address" required />
                 <input type="text" placeholder="Username" bind:value={newSessionUser} aria-label="Username" required />
-                <input type="password" placeholder="Password" bind:value={newSessionPass} aria-label="Password" />
+                
+                <select bind:value={newSessionAuthMethod} aria-label="Auth Method">
+                    <option value="Password">Password</option>
+                    <option value="Key">SSH Identity</option>
+                </select>
+
+                {#if newSessionAuthMethod === 'Password'}
+                    <input type="password" placeholder="Password" bind:value={newSessionPass} aria-label="Password" />
+                {:else}
+                    <select bind:value={newSessionKeyId} aria-label="SSH Identity" required>
+                        <option value="" disabled selected>Select Identity...</option>
+                        {#each appState.sshKeys as key}
+                            <option value={key.id}>{key.label}</option>
+                        {/each}
+                    </select>
+                {/if}
+
                 <div class="grid">
                     <button type="submit">Create</button>
                     <button type="button" class="secondary outline" onclick={resetSessionForm}>Cancel</button>

@@ -31,6 +31,7 @@ export interface Session {
     port: number;
     type: 'ssh';
     zellijSession: string;
+    key_id?: string;
     status: 'disconnected' | 'connecting' | 'connected' | 'error';
 }
 
@@ -271,11 +272,12 @@ function createAppState() {
             await this.connectSession(sessionId);
         },
 
-        async addSession(label: string, hostAddress: string, username: string, type: 'ssh', zellijSession: string, password?: string) {
+        async addSession(label: string, hostAddress: string, username: string, type: 'ssh', zellijSession: string, password?: string, keyId?: string) {
             const id = crypto.randomUUID();
             state.sessions.push({
                 id, label, hostAddress, username, password,
-                port: 22, type, zellijSession, status: 'disconnected'
+                port: 22, type, zellijSession, status: 'disconnected',
+                key_id: keyId
             });
             await saveToStore();
         },
@@ -308,8 +310,9 @@ function createAppState() {
                         host: session.hostAddress,
                         port: session.port,
                         username: session.username,
-                        auth_method: "Password",
+                        auth_method: session.key_id ? "Key" : "Password",
                         password: session.password || "",
+                        key_id: session.key_id,
                         session_name: session.zellijSession
                     }
                 });
@@ -352,8 +355,9 @@ function createAppState() {
                 host: session.hostAddress,
                 port: session.port,
                 username: session.username,
-                auth_method: "Password",
+                auth_method: session.key_id ? "Key" : "Password",
                 password: session.password || "",
+                key_id: session.key_id,
                 session_name: session.zellijSession
             };
 
