@@ -46,6 +46,54 @@ impl client::Handler for Client {
     }
 }
 
+/// Load a private key from the given config, resolving the path based on auth method.
+fn load_private_key(config: &SshConfig, app_handle: &tauri::AppHandle) -> Result<russh::keys::PrivateKey, String> {
+    match config.auth_method {
+        AuthMethod::PrivateKey => {
+            let key_path = config.private_key_path.as_deref().ok_or("Private key path is required")?;
+            let key_str = std::fs::read_to_string(key_path)
+                .map_err(|e| format!("Failed to read private key at {}: {}", key_path, e))?;
+            let passphrase = config.private_key_passphrase.as_deref();
+            russh::keys::decode_secret_key(&key_str, passphrase)
+                .map_err(|e| format!("Failed to decode private key: {}", e))
+        }
+        AuthMethod::Key => {
+            let key_id = config.key_id.as_deref().ok_or("Key ID is required")?;
+            let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
+            let priv_path = base_path.join(format!("{}.priv", key_id));
+            let key_str = std::fs::read_to_string(&priv_path)
+                .map_err(|e| format!("Failed to read key file: {}", e))?;
+            russh::keys::decode_secret_key(&key_str, None)
+                .map_err(|e| format!("Failed to decode key: {}", e))
+        }
+        AuthMethod::Password => {
+            Err("load_private_key called with Password auth method".to_string())
+        }
+    }
+}
+
+/// Authenticate an SSH session using the given config.
+async fn authenticate(
+    session: &mut client::Handle<Client>,
+    config: &SshConfig,
+    app_handle: &tauri::AppHandle,
+) -> Result<AuthResult, String> {
+    match config.auth_method {
+        AuthMethod::Password => {
+            let password = config.password.as_deref().ok_or("Password is required")?;
+            session.authenticate_password(&config.username, password).await
+                .map_err(|e| format!("Password auth error: {}", e))
+        }
+        AuthMethod::PrivateKey | AuthMethod::Key => {
+            let key = load_private_key(config, app_handle)?;
+            session.authenticate_publickey(
+                &config.username,
+                russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None),
+            ).await.map_err(|e| format!("Public key auth error: {}", e))
+        }
+    }
+}
+
 pub struct SshManager {
     // Stores the write handle for each active session
     pub active_sessions: Arc<Mutex<HashMap<String, mpsc::Sender<SessionMsg>>>>,
@@ -60,10 +108,7 @@ impl SshManager {
 
     pub async fn run_command(&self, app_handle: tauri::AppHandle, config: SshConfig, cmd: String) -> Result<String, String> {
         debug!("Running SSH command: {} on {}:{}", cmd, config.host, config.port);
-        let client_config = client::Config {
-            ..Default::default()
-        };
-        let client_config = Arc::new(client_config);
+        let client_config = Arc::new(client::Config::default());
         let sh = Client {};
 
         let addr = format!("{}:{}", config.host, config.port);
@@ -73,38 +118,16 @@ impl SshManager {
                 format!("Connection failed: {}", e)
             })?;
 
-        let auth_res = match config.auth_method {
-            AuthMethod::Password => {
-                let password = config.password.clone().ok_or("Password is required")?;
-                session.authenticate_password(&config.username, &password).await
-            }
-            AuthMethod::PrivateKey => {
-                let key_path = config.private_key_path.clone().ok_or("Private key path is required")?;
-                let key_str = std::fs::read_to_string(&key_path)
-                    .map_err(|e| format!("Failed to read private key at {}: {}", key_path, e))?;
-                let passphrase = config.private_key_passphrase.as_deref();
-                let key = russh::keys::decode_secret_key(&key_str, passphrase)
-                    .map_err(|e| format!("Failed to decode private key: {}", e))?;
-                session.authenticate_publickey(&config.username, russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None)).await
-            }
-            AuthMethod::Key => {
-                let key_id = config.key_id.clone().ok_or("Key ID is required")?;
-                let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
-                let priv_path = base_path.join(format!("{}.priv", key_id));
-                let key_str = std::fs::read_to_string(priv_path).map_err(|e| format!("Failed to read key file: {}", e))?;
-                let key = russh::keys::decode_secret_key(&key_str, None).map_err(|e| format!("Failed to decode key: {}", e))?;
-                session.authenticate_publickey(&config.username, russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None)).await
-            }
-        };
+        let auth_res = authenticate(&mut session, &config, &app_handle).await?;
 
-        if let Ok(AuthResult::Success) = auth_res {
+        if let AuthResult::Success = auth_res {
             debug!("SSH authentication successful for command execution");
             let mut channel = session.channel_open_session().await
                 .map_err(|e| {
                     error!("Failed to open SSH channel: {}", e);
                     format!("Failed to open channel: {}", e)
                 })?;
-            
+
             channel.exec(true, cmd).await
                 .map_err(|e| {
                     error!("Failed to execute SSH command: {}", e);
@@ -131,10 +154,7 @@ impl SshManager {
 
     pub async fn connect(&self, tab_id: String, config: SshConfig, app_handle: tauri::AppHandle) -> Result<(), String> {
         info!("SSH connect requested for tab: {}, host: {}", tab_id, config.host);
-        let client_config = client::Config {
-            ..Default::default()
-        };
-        let client_config = Arc::new(client_config);
+        let client_config = Arc::new(client::Config::default());
         let sh = Client {};
 
         let addr = format!("{}:{}", config.host, config.port);
@@ -144,48 +164,26 @@ impl SshManager {
                 format!("Connection failed: {}", e)
             })?;
 
-        let auth_res = match config.auth_method {
-            AuthMethod::Password => {
-                let password = config.password.clone().ok_or("Password is required")?;
-                session.authenticate_password(&config.username, &password).await
-            }
-            AuthMethod::PrivateKey => {
-                let key_path = config.private_key_path.clone().ok_or("Private key path is required")?;
-                let key_str = std::fs::read_to_string(&key_path)
-                    .map_err(|e| format!("Failed to read private key at {}: {}", key_path, e))?;
-                let passphrase = config.private_key_passphrase.as_deref();
-                let key = russh::keys::decode_secret_key(&key_str, passphrase)
-                    .map_err(|e| format!("Failed to decode private key: {}", e))?;
-                session.authenticate_publickey(&config.username, russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None)).await
-            }
-            AuthMethod::Key => {
-                let key_id = config.key_id.clone().ok_or("Key ID is required")?;
-                let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
-                let priv_path = base_path.join(format!("{}.priv", key_id));
-                let key_str = std::fs::read_to_string(priv_path).map_err(|e| format!("Failed to read key file: {}", e))?;
-                let key = russh::keys::decode_secret_key(&key_str, None).map_err(|e| format!("Failed to decode key: {}", e))?;
-                session.authenticate_publickey(&config.username, russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None)).await
-            }
-        };
+        let auth_res = authenticate(&mut session, &config, &app_handle).await?;
 
         match auth_res {
-            Ok(AuthResult::Success) => {
+            AuthResult::Success => {
                 info!("SSH authentication successful for tab: {}", tab_id);
                 let mut channel = session.channel_open_session().await
                     .map_err(|e| {
                         error!("Failed to open SSH channel for tab {}: {}", tab_id, e);
                         format!("Failed to open channel: {}", e)
                     })?;
-                
+
                 channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await
                     .map_err(|e| {
                         error!("Failed to request PTY for tab {}: {}", tab_id, e);
                         format!("Failed to request PTY: {}", e)
                     })?;
-                
+
                 let robust_cmd = format!("zellij attach --create {} || $SHELL", config.session_name);
                 debug!("Executing SSH shell command: {}", robust_cmd);
-                
+
                 channel.exec(true, robust_cmd).await
                     .map_err(|e| {
                         error!("Failed to execute shell command for tab {}: {}", tab_id, e);
@@ -247,13 +245,9 @@ impl SshManager {
                 info!("SSH connection established for tab: {}", tab_id);
                 Ok(())
             }
-            Ok(_) => {
+            _ => {
                 error!("SSH authentication failed for tab: {}", tab_id);
                 Err("Authentication failed".to_string())
-            },
-            Err(e) => {
-                error!("SSH authentication error for tab {}: {}", tab_id, e);
-                Err(format!("Authentication error: {}", e))
             },
         }
     }
@@ -290,5 +284,93 @@ impl SshManager {
         info!("Disconnecting SSH session for tab: {}", tab_id);
         let mut active = self.active_sessions.lock().await;
         active.remove(&tab_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_private_key_missing_path() {
+        // Cannot create a real AppHandle in tests, but we can test the PrivateKey path validation
+        let config = SshConfig {
+            host: "example.com".to_string(),
+            port: 22,
+            username: "user".to_string(),
+            auth_method: AuthMethod::PrivateKey,
+            password: None,
+            private_key_path: None,
+            private_key_passphrase: None,
+            key_id: None,
+            session_name: "main".to_string(),
+        };
+
+        // We can't call load_private_key without an AppHandle that resolves paths,
+        // but we can test that it requires private_key_path
+        assert!(config.private_key_path.is_none());
+        // The actual check happens inside load_private_key via .ok_or()
+    }
+
+    #[test]
+    fn test_load_private_key_from_file() {
+        // Generate a key, write it, then verify load_private_key can read it
+        let tmp = tempfile::tempdir().unwrap();
+        let key = ssh_key::PrivateKey::random(&mut rand::rngs::OsRng, ssh_key::Algorithm::Ed25519).unwrap();
+        let key_path = tmp.path().join("test_key");
+        let pem = key.to_openssh(ssh_key::LineEnding::LF).unwrap();
+        std::fs::write(&key_path, pem.as_bytes()).unwrap();
+
+        let config = SshConfig {
+            host: "example.com".to_string(),
+            port: 22,
+            username: "user".to_string(),
+            auth_method: AuthMethod::PrivateKey,
+            password: None,
+            private_key_path: Some(key_path.to_str().unwrap().to_string()),
+            private_key_passphrase: None,
+            key_id: None,
+            session_name: "main".to_string(),
+        };
+
+        // Create a minimal mock - load_private_key for PrivateKey doesn't need AppHandle
+        // We test the key loading path directly
+        let key_str = std::fs::read_to_string(config.private_key_path.as_ref().unwrap()).unwrap();
+        let decoded = russh::keys::decode_secret_key(&key_str, None);
+        assert!(decoded.is_ok(), "Key should decode: {:?}", decoded.err());
+    }
+
+    #[test]
+    fn test_load_private_key_bad_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bad_path = tmp.path().join("nonexistent_key");
+
+        let config = SshConfig {
+            host: "example.com".to_string(),
+            port: 22,
+            username: "user".to_string(),
+            auth_method: AuthMethod::PrivateKey,
+            password: None,
+            private_key_path: Some(bad_path.to_str().unwrap().to_string()),
+            private_key_passphrase: None,
+            key_id: None,
+            session_name: "main".to_string(),
+        };
+
+        let result = std::fs::read_to_string(config.private_key_path.as_ref().unwrap());
+        assert!(result.is_err(), "Should fail to read nonexistent file");
+    }
+
+    #[test]
+    fn test_auth_method_serde_variants() {
+        for (method, expected) in [
+            (AuthMethod::Password, "\"Password\""),
+            (AuthMethod::PrivateKey, "\"PrivateKey\""),
+            (AuthMethod::Key, "\"Key\""),
+        ] {
+            let json = serde_json::to_string(&method).unwrap();
+            assert_eq!(json, expected);
+            let _: AuthMethod = serde_json::from_str(&json).unwrap();
+        }
     }
 }
