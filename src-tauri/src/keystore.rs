@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use tauri::Manager;
+use log::info;
+use russh_keys::PublicKeyBase64;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct KeyIdentity {
@@ -37,32 +39,37 @@ impl StandardKeyManager {
         std::fs::create_dir_all(&base_path).ok();
         Self { base_path }
     }
+
+    pub fn new_with_path(base_path: std::path::PathBuf) -> Self {
+        std::fs::create_dir_all(&base_path).ok();
+        Self { base_path }
+    }
 }
 
 #[async_trait]
 impl KeyManager for StandardKeyManager {
     async fn generate_key(&self, label: String) -> Result<KeyIdentity, String> {
-        use russh_keys::*;
-        let id = crypto::randomUUID(); // wait, crypto is JS
         let id = uuid::Uuid::new_v4().to_string();
-        let key = key::KeyPair::generate_ed25519().ok_or("Failed to generate key")?;
-        
+        let key = ssh_key::PrivateKey::random(&mut rand::rngs::OsRng, ssh_key::Algorithm::Ed25519)
+            .map_err(|e| format!("Key generation failed: {}", e))?;
+
         let priv_path = self.base_path.join(format!("{}.priv", id));
         let meta_path = self.base_path.join(format!("{}.json", id));
-        
-        // In a real app, we'd encrypt this with a system-provided key
-        key.write_pem_file(&priv_path, None).map_err(|e| e.to_string())?;
-        
+
+        let pem = key.to_openssh(ssh_key::LineEnding::LF)
+            .map_err(|e| format!("Failed to encode private key: {}", e))?;
+        std::fs::write(&priv_path, pem.as_bytes()).map_err(|e| e.to_string())?;
+
         let identity = KeyIdentity {
             id: id.clone(),
             label,
-            public_key: key.public_key_base64(),
+            public_key: key.public_key().public_key_base64(),
             created_at: chrono::Utc::now().timestamp(),
         };
-        
+
         let meta_json = serde_json::to_string(&identity).map_err(|e| e.to_string())?;
         std::fs::write(meta_path, meta_json).map_err(|e| e.to_string())?;
-        
+
         Ok(identity)
     }
 
@@ -90,10 +97,10 @@ impl KeyManager for StandardKeyManager {
         Ok(())
     }
 
-    async fn sign(&self, id: String, data: &[u8], _reason: String) -> Result<Vec<u8>, String> {
-        use russh_keys::*;
+    async fn sign(&self, id: String, _data: &[u8], _reason: String) -> Result<Vec<u8>, String> {
         let priv_path = self.base_path.join(format!("{}.priv", id));
-        let key = load_secret_key(priv_path, None).map_err(|e| e.to_string())?;
+        let key_str = std::fs::read_to_string(priv_path).map_err(|e| e.to_string())?;
+        let _key = russh::keys::decode_secret_key(&key_str, None).map_err(|e| e.to_string())?;
         
         // This is a simplified signing for ed25519
         // Russh usually handles this in the handshake, but we might need manual signing for FIDO
@@ -143,12 +150,161 @@ impl KeyManager for AndroidKeyManager {
         // Trigger Biometric Prompt via frontend or internal event
         // This is a complex flow because the SSH handshake is happening in a background thread.
         // We might need to use a oneshot channel to wait for the biometric result.
-        
+
         info!("Requesting biometric authentication for signing with key: {}", id);
-        
+
         // For now, return error as we need to wire up the async callback from Kotlin
         Err("Biometric signing bridge not fully wired up".to_string())
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    fn make_manager(dir: &std::path::Path) -> StandardKeyManager {
+        StandardKeyManager::new_with_path(dir.join("keys"))
+    }
+
+    #[tokio::test]
+    async fn test_generate_key_creates_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        let identity = mgr.generate_key("test-key".to_string()).await.unwrap();
+
+        assert_eq!(identity.label, "test-key");
+        assert!(!identity.id.is_empty());
+        assert!(!identity.public_key.is_empty());
+        assert!(identity.created_at > 0);
+
+        let keys_dir = tmp.path().join("keys");
+        let priv_path = keys_dir.join(format!("{}.priv", identity.id));
+        let meta_path = keys_dir.join(format!("{}.json", identity.id));
+        assert!(priv_path.exists(), ".priv file should exist");
+        assert!(meta_path.exists(), ".json file should exist");
+    }
+
+    #[tokio::test]
+    async fn test_generate_key_produces_valid_ed25519() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        let identity = mgr.generate_key("ed25519-check".to_string()).await.unwrap();
+
+        // Public key should be base64-decodable
+        assert!(!identity.public_key.is_empty());
+
+        // Private key file should be readable and decodable by russh
+        let priv_path = tmp.path().join("keys").join(format!("{}.priv", identity.id));
+        let key_str = std::fs::read_to_string(priv_path).unwrap();
+        let decoded = russh::keys::decode_secret_key(&key_str, None);
+        assert!(decoded.is_ok(), "Private key should be decodable");
+    }
+
+    #[tokio::test]
+    async fn test_list_identities_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        let list = mgr.list_identities().await.unwrap();
+        assert!(list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_identities_returns_generated_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        mgr.generate_key("key-a".to_string()).await.unwrap();
+        mgr.generate_key("key-b".to_string()).await.unwrap();
+
+        let list = mgr.list_identities().await.unwrap();
+        assert_eq!(list.len(), 2);
+
+        let labels: Vec<&str> = list.iter().map(|k| k.label.as_str()).collect();
+        assert!(labels.contains(&"key-a"));
+        assert!(labels.contains(&"key-b"));
+    }
+
+    #[tokio::test]
+    async fn test_list_identities_skips_corrupt_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        mgr.generate_key("good-key".to_string()).await.unwrap();
+
+        // Write a corrupt JSON file
+        let keys_dir = tmp.path().join("keys");
+        std::fs::write(keys_dir.join("corrupt.json"), "not valid json").unwrap();
+
+        let list = mgr.list_identities().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].label, "good-key");
+    }
+
+    #[tokio::test]
+    async fn test_delete_identity_removes_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        let identity = mgr.generate_key("to-delete".to_string()).await.unwrap();
+        let keys_dir = tmp.path().join("keys");
+        assert!(keys_dir.join(format!("{}.priv", identity.id)).exists());
+        assert!(keys_dir.join(format!("{}.json", identity.id)).exists());
+
+        mgr.delete_identity(identity.id.clone()).await.unwrap();
+
+        assert!(!keys_dir.join(format!("{}.priv", identity.id)).exists());
+        assert!(!keys_dir.join(format!("{}.json", identity.id)).exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_identity_nonexistent_is_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        // Should not error when deleting a key that doesn't exist
+        let result = mgr.delete_identity("nonexistent-id".to_string()).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_key_identity_serde_roundtrip() {
+        let identity = KeyIdentity {
+            id: "test-uuid".to_string(),
+            label: "my label".to_string(),
+            public_key: "AAAAC3NzaC1lZDI1NTE5".to_string(),
+            created_at: 1700000000,
+        };
+
+        let json = serde_json::to_string(&identity).unwrap();
+        let deserialized: KeyIdentity = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.id, identity.id);
+        assert_eq!(deserialized.label, identity.label);
+        assert_eq!(deserialized.public_key, identity.public_key);
+        assert_eq!(deserialized.created_at, identity.created_at);
+    }
+
+    #[tokio::test]
+    async fn test_ssh_config_key_auth_serde() {
+        let config = crate::ssh::SshConfig {
+            host: "example.com".to_string(),
+            port: 22,
+            username: "user".to_string(),
+            auth_method: crate::ssh::AuthMethod::Key,
+            password: None,
+            private_key_path: None,
+            private_key_passphrase: None,
+            key_id: Some("my-key-id".to_string()),
+            session_name: "main".to_string(),
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: crate::ssh::SshConfig = serde_json::from_str(&json).unwrap();
+
+        assert!(matches!(deserialized.auth_method, crate::ssh::AuthMethod::Key));
+        assert_eq!(deserialized.key_id, Some("my-key-id".to_string()));
+    }
+}
