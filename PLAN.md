@@ -22,11 +22,16 @@ This document tracks the evolution of zelland into a resilient mobile command ce
     - [x] Implement userspace packet loop in `src-tauri/src/network.rs`.
     - [x] Create Tauri command `start_tunnel(config)` to bring up the interface.
     - [x] **Test:** Verify handshake and keep-alive with a mock peer.
-- [x] **Mosh Integration**
-    - [x] Research: Bundle `mosh-client` binary (Android) vs. link `libmosh` (iOS/Rust).
-    - [x] Implement `src-tauri/src/mosh.rs` to spawn Mosh inside the WG tunnel.
-    - [x] Bridge Mosh output to frontend events (`mosh-data`).
-    - [x] **Test:** Ensure Mosh traffic flows through the userspace tunnel.
+- [x] **SSH Integration (Native)**
+    - [x] Implement SSH backend in Rust (`src-tauri/src/ssh.rs`).
+    - [x] Basic connection and authentication (password).
+    - [x] PTY management (`russh` pty request).
+    - [x] `xterm.js` <-> `russh` data pipe.
+- [ ] **FIDO SSH & Biometrics (In Progress)**
+    - [ ] Design FIDO-based SSH flow (`DESIGN_FIDO_SSH.md`).
+    - [ ] Implement `ed25519-sk` key generation on Android/Linux.
+    - [ ] Integrate with Android BiometricPrompt for key usage.
+    - [ ] Update "Session" connection to use FIDO key.
 - [x] **Run Tests**: Execute `cargo test` to verify networking logic.
 
 ### Phase 2: Daemon & Project API
@@ -45,7 +50,7 @@ This document tracks the evolution of zelland into a resilient mobile command ce
 ### Phase 3: Svelte 5 UI Overhaul
 - [x] **Write Tests (UI)**: Setup Component tests for Layout and State logic.
 - [x] **Reactive State**
-    - [x] Create `src/lib/stores/project.svelte.ts` using Runes for project/connection state.
+    - [x] Create `src/lib/stores/app.svelte.ts` using Runes for project/connection state.
 - [x] **Infinite Ribbon Layout**
     - [x] Implement `src/routes/+page.svelte` with CSS Snap Scroll.
     - [x] Create `Pane.svelte` wrapper component (Merged into Page/MarkdownPane).
@@ -53,7 +58,7 @@ This document tracks the evolution of zelland into a resilient mobile command ce
     - [x] Build `MarkdownPane.svelte` fetching content from `currentProject`.
     - [x] Integrate a markdown renderer (e.g., `markdown-it` or `marked`).
 - [x] **Refine Terminal**
-    - [x] Update `Terminal.svelte` to consume Mosh stream instead of raw SSH.
+    - [x] Update `Terminal.svelte` to consume SSH stream.
     - [x] Implement "Gesture Lock" to prevent scroll conflicts.
 - [x] **Run Tests**: Execute `npm run test` for UI components.
 
@@ -67,3 +72,7 @@ This document tracks the evolution of zelland into a resilient mobile command ce
 ### Phase 5: Verification
 - [x] **Unit Tests**: Rust networking logic, Svelte state logic.
 - [x] **E2E**: Verify full flow: App Open -> Tunnel Up -> Project List -> Connect -> Terminal Active.
+
+### Deprecated / Removed
+- ~~Mosh Integration~~: Removed due to Android binary execution restrictions and complexity.
+- ~~Mosh Output Bridge~~: Removed.

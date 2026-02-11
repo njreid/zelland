@@ -2,11 +2,12 @@ pub mod ssh;
 pub mod daemon;
 pub mod intent;
 pub mod network;
-pub mod mosh;
+pub mod keystore;
 
 use tauri::{State, AppHandle};
 use crate::ssh::{SshConfig, SshManager};
 use crate::daemon::DaemonManager;
+use crate::keystore::{KeyManager, StandardKeyManager};
 
 #[tauri::command]
 async fn ssh_connect(app_handle: AppHandle, state: State<'_, SshManager>, tab_id: String, config: SshConfig) -> Result<(), String> {
@@ -55,6 +56,18 @@ async fn close_window(app_handle: AppHandle) {
     app_handle.exit(0);
 }
 
+#[tauri::command]
+async fn generate_ssh_key(app_handle: AppHandle, label: String) -> Result<crate::keystore::KeyIdentity, String> {
+    let manager = StandardKeyManager::new(&app_handle);
+    manager.generate_key(label).await
+}
+
+#[tauri::command]
+async fn list_ssh_keys(app_handle: AppHandle) -> Result<Vec<crate::keystore::KeyIdentity>, String> {
+    let manager = StandardKeyManager::new(&app_handle);
+    manager.list_identities().await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -70,7 +83,6 @@ pub fn run() {
         })
         .manage(SshManager::new())
         .manage(network::NetworkManager::new())
-        .manage(mosh::MoshManager::new())
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -93,9 +105,8 @@ pub fn run() {
             ssh_list_zellij_sessions,
             network::start_tunnel,
             network::stop_tunnel,
-            mosh::mosh_connect,
-            mosh::mosh_write,
-            mosh::mosh_resize,
+            generate_ssh_key,
+            list_ssh_keys,
             close_window
         ])
         .run(tauri::generate_context!())

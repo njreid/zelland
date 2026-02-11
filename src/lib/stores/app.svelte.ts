@@ -29,7 +29,7 @@ export interface Session {
     username: string;
     password?: string;
     port: number;
-    type: 'ssh' | 'mosh';
+    type: 'ssh';
     zellijSession: string;
     status: 'disconnected' | 'connecting' | 'connected' | 'error';
 }
@@ -46,6 +46,7 @@ export interface AppState {
     loadedFiles: Record<string, boolean>;
     terminalFontSize: number;
     logs: { message: string, type: 'info' | 'error' }[];
+    sshKeys: any[];
 }
 
 const STORE_PATH = "settings.json";
@@ -63,11 +64,20 @@ function createAppState() {
         loadedFiles: {},
         terminalFontSize: 14,
         logs: [],
+        sshKeys: [],
     });
 
     function log(message: string, type: 'info' | 'error' = 'info') {
         state.logs.push({ message, type });
         if (state.logs.length > 50) state.logs.shift();
+    }
+
+    async function fetchSshKeys() {
+        try {
+            state.sshKeys = await invoke<any[]>("list_ssh_keys");
+        } catch (e) {
+            console.error("Failed to fetch SSH keys:", e);
+        }
     }
 
     // Listen for events from daemon
@@ -143,6 +153,8 @@ function createAppState() {
             for (const host of state.hosts) {
                 fetchProjectsForHost(host.id);
             }
+
+            fetchSshKeys();
         } catch (e) {
             console.error("Failed to load store:", e);
         }
@@ -170,6 +182,7 @@ function createAppState() {
         get loadedFiles() { return state.loadedFiles; },
         get logs() { return state.logs; },
         get viewUpdateTrigger() { return state.viewUpdateTrigger; },
+        get sshKeys() { return state.sshKeys; },
         get currentProject() { return null; },
 
         closeActiveSession() {
@@ -193,6 +206,20 @@ function createAppState() {
 
         triggerTerminalResize() {
             state.terminalResizeTrigger += 1;
+        },
+
+        async generateSshKey(label: string) {
+            try {
+                await invoke("generate_ssh_key", { label });
+                await fetchSshKeys();
+            } catch (e) {
+                console.error("Failed to generate SSH key:", e);
+                log(`Failed to generate SSH key: ${e}`, 'error');
+            }
+        },
+
+        async fetchSshKeys() {
+            await fetchSshKeys();
         },
 
         async addHost(label: string, address: string, username: string, password?: string) {
@@ -233,7 +260,7 @@ function createAppState() {
                     username: host.username,
                     password: host.password,
                     port: 22,
-                    type: 'mosh',
+                    type: 'ssh',
                     zellijSession: project.session_name,
                     status: 'disconnected'
                 };
@@ -244,7 +271,7 @@ function createAppState() {
             await this.connectSession(sessionId);
         },
 
-        async addSession(label: string, hostAddress: string, username: string, type: 'ssh' | 'mosh', zellijSession: string, password?: string) {
+        async addSession(label: string, hostAddress: string, username: string, type: 'ssh', zellijSession: string, password?: string) {
             const id = crypto.randomUUID();
             state.sessions.push({
                 id, label, hostAddress, username, password,
@@ -275,31 +302,18 @@ function createAppState() {
             log(`Connecting to session: ${session.label}...`);
 
             try {
-                if (session.type === 'mosh') {
-                    await invoke("mosh_connect", {
-                        tabId: session.id,
-                        config: {
-                            host: session.hostAddress,
-                            port: session.port,
-                            username: session.username,
-                            auth_method: "Password",
-                            password: session.password || "",
-                            session_name: session.zellijSession
-                        }
-                    });
-                } else {
-                    await invoke('ssh_connect', {
-                        tabId: session.id,
-                        config: {
-                            host: session.hostAddress,
-                            port: session.port,
-                            username: session.username,
-                            auth_method: "Password",
-                            password: session.password || "",
-                            session_name: session.zellijSession
-                        }
-                    });
-                }
+                await invoke('ssh_connect', {
+                    tabId: session.id,
+                    config: {
+                        host: session.hostAddress,
+                        port: session.port,
+                        username: session.username,
+                        auth_method: "Password",
+                        password: session.password || "",
+                        session_name: session.zellijSession
+                    }
+                });
+                
                 session.status = 'connected';
                 log(`Connected to session: ${session.label}.`);
 
@@ -324,11 +338,7 @@ function createAppState() {
             if (!session) return;
 
             try {
-                if (session.type === 'mosh') {
-                    await invoke("mosh_write", { tabId: sessionId, data });
-                } else {
-                    await invoke("ssh_write", { tabId: sessionId, data });
-                }
+                await invoke("ssh_write", { tabId: sessionId, data });
             } catch (e) {
                 console.error("Failed to write input:", e);
             }
@@ -362,11 +372,7 @@ function createAppState() {
             if (!session) return;
 
             try {
-                if (session.type === 'mosh') {
-                    await invoke("mosh_resize", { tabId: sessionId, rows, cols });
-                } else {
-                    await invoke("ssh_resize", { tabId: sessionId, rows, cols });
-                }
+                await invoke("ssh_resize", { tabId: sessionId, rows, cols });
             } catch (e) {
                 console.error("Failed to resize session:", e);
             }

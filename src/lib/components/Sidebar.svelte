@@ -16,7 +16,6 @@
     let newSessionHost = $state('');
     let newSessionUser = $state('');
     let newSessionPass = $state('');
-    let newSessionType = $state<'ssh' | 'mosh'>('mosh');
 
     async function handleAddHost() {
         if (newHostAddress && newHostUser) {
@@ -32,7 +31,7 @@
 
     async function handleAddSession() {
         if (newSessionName && newSessionHost && newSessionUser) {
-            await appState.addSession(newSessionName, newSessionHost, newSessionUser, newSessionType, newSessionName, newSessionPass);
+            await appState.addSession(newSessionName, newSessionHost, newSessionUser, 'ssh', newSessionName, newSessionPass);
             resetSessionForm();
             const sessions = appState.sessions;
             const newSession = sessions[sessions.length - 1];
@@ -96,14 +95,6 @@
                 <input type="text" placeholder="Host Address" bind:value={newSessionHost} aria-label="Host Address" required />
                 <input type="text" placeholder="Username" bind:value={newSessionUser} aria-label="Username" required />
                 <input type="password" placeholder="Password" bind:value={newSessionPass} aria-label="Password" />
-                <fieldset>
-                    <label>
-                        <input type="radio" name="type" value="mosh" bind:group={newSessionType} /> Mosh
-                    </label>
-                    <label>
-                        <input type="radio" name="type" value="ssh" bind:group={newSessionType} /> SSH
-                    </label>
-                </fieldset>
                 <div class="grid">
                     <button type="submit">Create</button>
                     <button type="button" class="secondary outline" onclick={resetSessionForm}>Cancel</button>
@@ -119,16 +110,45 @@
                 <a href="#" onclick={(e) => { e.preventDefault(); showSettings = false; }} class="close"><X size={14} /></a>
             </header>
             <div class="p-4 pt-0">
-                <label>
-                    Terminal Font Size: {appState.terminalFontSize}px
-                    <input 
-                        type="range" 
-                        min="8" 
-                        max="32" 
-                        value={appState.terminalFontSize} 
-                        oninput={(e) => appState.setTerminalFontSize(parseInt(e.currentTarget.value))}
-                    />
-                </label>
+                <div class="mb-4">
+                    <label>
+                        Terminal Font Size: {appState.terminalFontSize}px
+                        <input 
+                            type="range" 
+                            min="8" 
+                            max="32" 
+                            value={appState.terminalFontSize} 
+                            oninput={(e) => appState.setTerminalFontSize(parseInt(e.currentTarget.value))}
+                        />
+                    </label>
+                </div>
+
+                <div class="ssh-keys-section">
+                    <div class="flex-row justify-between mb-2">
+                        <small>SSH IDENTITIES</small>
+                        <button class="outline contrast icon-only-tiny" onclick={() => appState.generateSshKey('My Phone')} title="Generate New Key">
+                            <Plus size={14} />
+                        </button>
+                    </div>
+                    
+                    {#if appState.sshKeys.length === 0}
+                        <p class="text-xs secondary">No keys generated yet.</p>
+                    {:else}
+                        <ul class="list-none p-0">
+                            {#each appState.sshKeys as key}
+                                <li class="key-item mb-2">
+                                    <div class="flex-row justify-between">
+                                        <span class="text-sm">{key.label}</span>
+                                        <button class="secondary icon-only-tiny" onclick={() => navigator.clipboard.writeText(key.public_key)} title="Copy Public Key">
+                                            <Play size={10} />
+                                        </button>
+                                    </div>
+                                    <div class="text-xs secondary truncate" style="max-width: 180px;">{key.public_key}</div>
+                                </li>
+                            {/each}
+                        </ul>
+                    {/if}
+                </div>
             </div>
         </article>
     {/if}

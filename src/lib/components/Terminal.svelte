@@ -50,12 +50,6 @@
         });
 
         // Listen to both output types
-        listen('mosh-output', (event: any) => {
-            if (event.payload.tabId === tabId) {
-                term.write(event.payload.data);
-            }
-        }).then(u => unlisteners.push(u));
-
         listen('ssh-output', (event: any) => {
             if (event.payload.tabId === tabId) {
                 term.write(event.payload.data);

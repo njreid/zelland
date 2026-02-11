@@ -32,8 +32,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "./binaries/mosh-client"
-    ]
+    "externalBin": []
   }
 }
