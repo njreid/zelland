@@ -182,12 +182,10 @@ YJS handles conflicts automatically:
 
 ### KDL Parsing
 
-The daemon needs a KDL parser to read/write `.ann.kdl` files. Options:
+The daemon is written in Rust and uses the `kdl` crate to read/write `.ann.kdl` files. The JS client never parses KDL directly — it works with the YJS document via the sync protocol. The daemon handles the KDL ↔ YJS bridge:
 
-- Use a JS KDL library (`kdljs`) running in the daemon, OR
-- Write a simple KDL serializer/deserializer in Go for the daemon, with the JS client using `kdljs` for display.
-
-Since the daemon is in Go and the client is JS, the **daemon handles KDL file I/O** (Go KDL library) and communicates with clients via YJS binary sync protocol (opaque to the transport). The JS client never parses KDL directly — it works with the YJS document.
+- **Cold start:** Read `.ann.kdl` → populate `yrs::Doc` with annotation data.
+- **Persistence:** Serialize `yrs::Doc` annotation state → write `.ann.kdl` (debounced, 5s timer + on shutdown).
 
 ## Implementation Components
 
@@ -203,14 +201,14 @@ Since the daemon is in Go and the client is JS, the **daemon handles KDL file I/
 | `lib/annotations.ts` | YJS doc setup, WebSocket provider, reactive state |
 | Custom `marked` extension | Tokenizer for `[|ID|]` markers, renderer for anchor spans |
 
-### Daemon (Go)
+### Daemon (Rust)
 
 | Component | Purpose |
 |-----------|---------|
-| KDL file reader/writer | Serialize/deserialize `.ann.kdl` |
-| YJS document host | Manage YJS docs per file, persist state |
-| WebSocket handler | `/annotations/{filepath}/sync` endpoint |
-| Anchor repair | Re-insert `[|ID|]` markers via fuzzy matching |
+| `store.rs` | KDL serialize/deserialize for `.ann.kdl` files |
+| `yjs.rs` | `yrs::Doc` manager per file, KDL↔YJS bridge |
+| `server.rs` | `/annotations/{filepath}/sync` WebSocket endpoint (`y-sync` protocol) |
+| `anchor.rs` | Fuzzy re-anchoring: re-insert `[|ID|]` markers via prefix/suffix matching |
 
 ## Open Questions
 
@@ -236,10 +234,7 @@ Since the daemon is in Go and the client is JS, the **daemon handles KDL file I/
    Edit/delete others' comments?
    Delete entire annotation threads?
 
-5. **KDL library for Go:** The daemon is in Go. Options for KDL parsing:
-   `github.com/sblinch/kdl-go` (community library)
-   Hand-roll a minimal KDL serializer (the schema is simple enough)
-   Store as JSON internally and only use KDL as the on-disk format
+5. ~~**KDL library for Go**~~ **Resolved:** Daemon migrated to Rust. Uses the `kdl` crate (well-maintained, idiomatic Rust).
 
 6. **YJS persistence strategy:** How often should the daemon flush YJS state to disk?
    On every mutation (safe but slow)?

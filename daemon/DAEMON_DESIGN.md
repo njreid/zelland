@@ -2,16 +2,19 @@
 
 ## 1. Architectural Overview
 
-The **zelland Daemon** (`zellandd`) is a backend service written in Go, running on the remote host (Linux). It acts as a bridge between the host's filesystem and the zelland Android application, enabling rich media interactions and workflow enhancements beyond the terminal emulator.
+The **zelland Daemon** (`zellandd`) is a backend service written in **Rust**, running on the remote host (Linux). It acts as a bridge between the host's filesystem and the zelland application (Android + Desktop), enabling rich media interactions, collaborative annotations via YJS CRDT, and workflow enhancements beyond the terminal emulator.
+
+> **Migration note (2026-02):** The daemon was originally written in Go (~1,067 lines). It has been rewritten in Rust to enable first-class integration with the `yrs` crate (Rust port of YJS) for real-time collaborative annotation sync. The REST API, WebSocket protocol, and protobuf message format remain backward-compatible.
 
 ### High-Level Components
 
 1. **Daemon (`zellandd`)**: A persistent background service managing:
-   * **WebSocket Server**: Maintains a live control channel with the Android app.
-   * **Asset Server**: An HTTPS server serving content via obfuscated, ephemeral URLs.
-   * **State Manager**: Tracks active shared files and manages sidecar (`.kdl`) annotations.
-2. **CLI (`zelland`)**: A lightweight command-line tool that communicates with the daemon via IPC (Unix Domain Socket) or local HTTP to trigger actions (e.g., `zelland show image.png`).
-3. **Android Client**: The existing zelland app, enhanced to listen for WebSocket commands and render non-terminal tabs (WebViews for images/markdown).
+   * **HTTP/WebSocket Server** (`axum`): REST API + live control channel with the app.
+   * **Asset Server**: HTTPS server serving content via obfuscated, ephemeral URLs.
+   * **Annotation Engine** (`yrs`): YJS CRDT document hosting, sync, and persistence to `.ann.kdl` sidecar files.
+   * **File Watcher** (`notify`): Monitors served files for changes, broadcasts updates.
+2. **CLI (`zelland`)**: A lightweight command-line tool that communicates with the daemon via local HTTP to trigger actions (e.g., `zelland show image.png`).
+3. **Client**: The zelland app (Tauri + Svelte), connecting via HTTP REST and WebSocket.
 
 ## 2. Communication Protocols
 
@@ -154,17 +157,26 @@ annotation id="uuid-v4" timestamp=176982342 {
 3. **Authentication**:
    * Simple Pre-Shared Key (PSK) or Token exchange on WebSocket handshake, configured via environment variable or config file on both Host and Phone.
 
-## 7. Implementation Roadmap
+## 7. Tech Stack (Rust)
 
-1. **Phase 1: Daemon Skeleton & `show`**
-   * Go HTTP Server + WebSocket Upgrader.
-   * CLI tool to trigger "Hello World" message to phone.
-   * Implement Image serving.
-2. **Phase 2: Android Viewer**
-   * Add Protobuf parsing to Android.
-   * Implement "New Tab" logic in Compose.
-   * WebView integration for images.
-3. **Phase 3: Markdown & KDL**
-   * Daemon KDL parser/writer.
-   * Android text selection & annotation UI.
-   * Synchronization logic.
+| Concern | Crate | Notes |
+|---------|-------|-------|
+| HTTP/WS server | `axum` + `tokio` | Shared runtime with async I/O |
+| WebSocket | `axum` (built-in via `tokio-tungstenite`) | Binary protobuf + YJS sync |
+| Protobuf | `prost` + `prost-build` | Same `zelland.proto` as before |
+| KDL config/storage | `kdl` | Parse/write `.kdl` and `.ann.kdl` files |
+| File watching | `notify` | Cross-platform filesystem events |
+| CRDT/YJS | `yrs` + `y-sync` | Collaborative annotation documents |
+| CLI args | `clap` | `zellandd --config daemon.kdl --port 8083` |
+| TLS | `axum-server` + `rustls` | Optional, for `cert_file`/`key_file` |
+| Logging | `tracing` + `tracing-subscriber` | Structured logging |
+
+## 8. Implementation Roadmap
+
+See `PLAN.md` Phase 6 for detailed task breakdown. Summary:
+
+1. **6A–6C**: Scaffold, config, data types, asset manager — pure library code with tests.
+2. **6D–6F**: HTTP server, WebSocket, file watching — matches existing Go API 1:1.
+3. **6G**: CLI binaries (`zellandd`, `zelland`).
+4. **6H**: YJS integration — `yrs` doc hosting, sync endpoint, KDL↔YJS bridge.
+5. **6I**: Integration testing against Tauri client, cutover from Go.
