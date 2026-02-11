@@ -79,14 +79,21 @@ impl SshManager {
                 session.authenticate_password(&config.username, &password).await
             }
             AuthMethod::PrivateKey => {
-                return Err("Private key auth not implemented yet".to_string());
+                let key_path = config.private_key_path.clone().ok_or("Private key path is required")?;
+                let key_str = std::fs::read_to_string(&key_path)
+                    .map_err(|e| format!("Failed to read private key at {}: {}", key_path, e))?;
+                let passphrase = config.private_key_passphrase.as_deref();
+                let key = russh::keys::decode_secret_key(&key_str, passphrase)
+                    .map_err(|e| format!("Failed to decode private key: {}", e))?;
+                session.authenticate_publickey(&config.username, russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None)).await
             }
             AuthMethod::Key => {
                 let key_id = config.key_id.clone().ok_or("Key ID is required")?;
                 let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
                 let priv_path = base_path.join(format!("{}.priv", key_id));
-                let key = russh_keys::load_secret_key(priv_path, None).map_err(|e| format!("Failed to load key: {}", e))?;
-                session.authenticate_publickey(&config.username, Arc::new(key)).await
+                let key_str = std::fs::read_to_string(priv_path).map_err(|e| format!("Failed to read key file: {}", e))?;
+                let key = russh::keys::decode_secret_key(&key_str, None).map_err(|e| format!("Failed to decode key: {}", e))?;
+                session.authenticate_publickey(&config.username, russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None)).await
             }
         };
 
@@ -143,14 +150,21 @@ impl SshManager {
                 session.authenticate_password(&config.username, &password).await
             }
             AuthMethod::PrivateKey => {
-                return Err("Private key auth not implemented yet".to_string());
+                let key_path = config.private_key_path.clone().ok_or("Private key path is required")?;
+                let key_str = std::fs::read_to_string(&key_path)
+                    .map_err(|e| format!("Failed to read private key at {}: {}", key_path, e))?;
+                let passphrase = config.private_key_passphrase.as_deref();
+                let key = russh::keys::decode_secret_key(&key_str, passphrase)
+                    .map_err(|e| format!("Failed to decode private key: {}", e))?;
+                session.authenticate_publickey(&config.username, russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None)).await
             }
             AuthMethod::Key => {
                 let key_id = config.key_id.clone().ok_or("Key ID is required")?;
                 let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
                 let priv_path = base_path.join(format!("{}.priv", key_id));
-                let key = russh_keys::load_secret_key(priv_path, None).map_err(|e| format!("Failed to load key: {}", e))?;
-                session.authenticate_publickey(&config.username, Arc::new(key)).await
+                let key_str = std::fs::read_to_string(priv_path).map_err(|e| format!("Failed to read key file: {}", e))?;
+                let key = russh::keys::decode_secret_key(&key_str, None).map_err(|e| format!("Failed to decode key: {}", e))?;
+                session.authenticate_publickey(&config.username, russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None)).await
             }
         };
 

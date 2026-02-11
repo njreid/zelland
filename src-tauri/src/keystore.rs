@@ -351,4 +351,41 @@ mod tests {
         assert!(matches!(deserialized.auth_method, crate::ssh::AuthMethod::Key));
         assert_eq!(deserialized.key_id, Some("my-key-id".to_string()));
     }
+
+    #[tokio::test]
+    async fn test_ssh_config_private_key_auth_serde() {
+        let config = crate::ssh::SshConfig {
+            host: "example.com".to_string(),
+            port: 22,
+            username: "user".to_string(),
+            auth_method: crate::ssh::AuthMethod::PrivateKey,
+            password: None,
+            private_key_path: Some("/home/user/.ssh/id_ed25519".to_string()),
+            private_key_passphrase: Some("my-passphrase".to_string()),
+            key_id: None,
+            session_name: "main".to_string(),
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: crate::ssh::SshConfig = serde_json::from_str(&json).unwrap();
+
+        assert!(matches!(deserialized.auth_method, crate::ssh::AuthMethod::PrivateKey));
+        assert_eq!(deserialized.private_key_path, Some("/home/user/.ssh/id_ed25519".to_string()));
+        assert_eq!(deserialized.private_key_passphrase, Some("my-passphrase".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_private_key_file_decode_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = make_manager(tmp.path());
+
+        // Generate a key using the manager
+        let identity = mgr.generate_key("roundtrip-key".to_string()).await.unwrap();
+        let priv_path = tmp.path().join("keys").join(format!("{}.priv", identity.id));
+
+        // Verify the file can be decoded by russh (same path PrivateKey auth uses)
+        let key_str = std::fs::read_to_string(&priv_path).unwrap();
+        let key = russh::keys::decode_secret_key(&key_str, None);
+        assert!(key.is_ok(), "Generated key should be decodable by russh: {:?}", key.err());
+    }
 }
