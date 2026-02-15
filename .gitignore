@@ -17,13 +17,6 @@ captures/
 *.apk
 output-metadata.json
 
-# IntelliJ
-*.iml
-.idea/
-misc.xml
-deploymentTargetDropDown.xml
-render.experimental.xml
-
 # Keystore files
 *.jks
 *.keystore
@@ -35,7 +28,7 @@ google-services.json
 *.hprof
 
 # Node
-node_modules
+node_modules/
 .DS_Store
 .env
 .env.*
@@ -52,4 +45,7 @@ node_modules
 # Tauri
 src-tauri/target
 src-tauri/gen
+
+# Rust daemon
+daemon-rs/target
 
