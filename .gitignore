@@ -57,3 +57,6 @@ release/
 src-tauri/gen
 **/src-tauri/gen
 
+# Task
+.task/
+
