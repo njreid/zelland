@@ -3,7 +3,6 @@ pub mod daemon;
 pub mod intent;
 pub mod network;
 pub mod keystore;
-pub mod mosh;
 
 use tauri::{State, AppHandle, Manager};
 use crate::ssh::{SshConfig, SshManager};
@@ -124,7 +123,6 @@ pub fn run() {
             Ok(())
         })
         .manage(SshManager::new())
-        .manage(mosh::MoshManager::new())
         .manage(network::NetworkManager::new())
         .manage(DaemonManager::new())
         .plugin(tauri_plugin_log::Builder::new().build())
@@ -151,9 +149,6 @@ pub fn run() {
             ssh_list_zellij_sessions,
             network::start_tunnel,
             network::stop_tunnel,
-            mosh::mosh_connect,
-            mosh::mosh_write,
-            mosh::mosh_resize,
             generate_ssh_key,
             list_ssh_keys,
             delete_ssh_key,
