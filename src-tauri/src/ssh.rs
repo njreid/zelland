@@ -6,8 +6,7 @@ use tokio::sync::{Mutex, mpsc};
 use std::collections::HashMap;
 use std::future::Future;
 use log::{info, error, debug};
-use tauri::Manager;
-use zeroize::Zeroizing;
+use crate::keystore::KeyManager;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum AuthMethod {
@@ -47,8 +46,11 @@ impl client::Handler for Client {
     }
 }
 
-/// Load a private key from the given config, resolving the path based on auth method.
-fn load_private_key(config: &SshConfig, app_handle: &tauri::AppHandle) -> Result<russh::keys::PrivateKey, String> {
+/// Load a private key from the given config or keystore.
+async fn load_private_key(
+    config: &SshConfig, 
+    key_manager: Arc<dyn KeyManager>
+) -> Result<russh::keys::PrivateKey, String> {
     match config.auth_method {
         AuthMethod::PrivateKey => {
             let key_path = config.private_key_path.as_deref().ok_or("Private key path is required")?;
@@ -60,22 +62,7 @@ fn load_private_key(config: &SshConfig, app_handle: &tauri::AppHandle) -> Result
         }
         AuthMethod::Key => {
             let key_id = config.key_id.as_deref().ok_or("Key ID is required")?;
-            let base_path = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?.join("keys");
-            let priv_path = base_path.join(format!("{}.priv", key_id));
-            let key_str = Zeroizing::new(
-                std::fs::read_to_string(&priv_path)
-                    .map_err(|e| format!("Failed to read key file: {}", e))?
-            );
-            // Read master passphrase for decryption
-            let passphrase_path = base_path.join("master.key");
-            let passphrase = if passphrase_path.exists() {
-                let raw = std::fs::read_to_string(&passphrase_path).map_err(|e| e.to_string())?;
-                Some(Zeroizing::new(raw.trim().to_string()))
-            } else {
-                None
-            };
-            russh::keys::decode_secret_key(&key_str, passphrase.as_deref().map(|s| s.as_str()))
-                .map_err(|e| format!("Failed to decode key: {}", e))
+            key_manager.get_russh_key(key_id).await
         }
         AuthMethod::Password => {
             Err("load_private_key called with Password auth method".to_string())
@@ -83,11 +70,11 @@ fn load_private_key(config: &SshConfig, app_handle: &tauri::AppHandle) -> Result
     }
 }
 
-/// Authenticate an SSH session using the given config.
+/// Authenticate an SSH session using the given config and key manager.
 async fn authenticate(
     session: &mut client::Handle<Client>,
     config: &SshConfig,
-    app_handle: &tauri::AppHandle,
+    key_manager: Arc<dyn KeyManager>,
 ) -> Result<AuthResult, String> {
     match config.auth_method {
         AuthMethod::Password => {
@@ -96,7 +83,7 @@ async fn authenticate(
                 .map_err(|e| format!("Password auth error: {}", e))
         }
         AuthMethod::PrivateKey | AuthMethod::Key => {
-            let key = load_private_key(config, app_handle)?;
+            let key = load_private_key(config, key_manager).await?;
             session.authenticate_publickey(
                 &config.username,
                 russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None),
@@ -117,7 +104,13 @@ impl SshManager {
         }
     }
 
-    pub async fn run_command(&self, app_handle: tauri::AppHandle, config: SshConfig, cmd: String) -> Result<String, String> {
+    pub async fn run_command(
+        &self, 
+        _app_handle: tauri::AppHandle, 
+        config: SshConfig, 
+        cmd: String,
+        key_manager: Arc<dyn KeyManager>
+    ) -> Result<String, String> {
         debug!("Running SSH command: {} on {}:{}", cmd, config.host, config.port);
         let client_config = Arc::new(client::Config::default());
         let sh = Client {};
@@ -129,7 +122,7 @@ impl SshManager {
                 format!("Connection failed: {}", e)
             })?;
 
-        let auth_res = authenticate(&mut session, &config, &app_handle).await?;
+        let auth_res = authenticate(&mut session, &config, key_manager).await?;
 
         if let AuthResult::Success = auth_res {
             debug!("SSH authentication successful for command execution");
@@ -163,7 +156,13 @@ impl SshManager {
         }
     }
 
-    pub async fn connect(&self, tab_id: String, config: SshConfig, app_handle: tauri::AppHandle) -> Result<(), String> {
+    pub async fn connect(
+        &self, 
+        tab_id: String, 
+        config: SshConfig, 
+        app_handle: tauri::AppHandle,
+        key_manager: Arc<dyn KeyManager>
+    ) -> Result<(), String> {
         info!("SSH connect requested for tab: {}, host: {}", tab_id, config.host);
         let client_config = Arc::new(client::Config::default());
         let sh = Client {};
@@ -175,7 +174,7 @@ impl SshManager {
                 format!("Connection failed: {}", e)
             })?;
 
-        let auth_res = authenticate(&mut session, &config, &app_handle).await?;
+        let auth_res = authenticate(&mut session, &config, key_manager).await?;
 
         match auth_res {
             AuthResult::Success => {

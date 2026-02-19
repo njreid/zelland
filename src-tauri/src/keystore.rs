@@ -27,6 +27,9 @@ pub trait KeyManager: Send + Sync {
     /// Sign data using the private key associated with the ID.
     /// This may trigger a biometric prompt on mobile.
     async fn sign(&self, id: String, data: &[u8], reason: String) -> Result<Vec<u8>, String>;
+
+    /// Load a private key in a format compatible with russh.
+    async fn get_russh_key(&self, id: &str) -> Result<russh::keys::PrivateKey, String>;
 }
 
 pub struct StandardKeyManager {
@@ -159,6 +162,17 @@ impl KeyManager for StandardKeyManager {
             _ => Err("Only ed25519 keys are supported for signing".to_string()),
         }
     }
+
+    async fn get_russh_key(&self, id: &str) -> Result<russh::keys::PrivateKey, String> {
+        let priv_path = self.base_path.join(format!("{}.priv", id));
+        let key_str = Zeroizing::new(
+            std::fs::read_to_string(&priv_path)
+                .map_err(|e| format!("Failed to read key file: {}", e))?
+        );
+        let passphrase = self.master_passphrase()?;
+        russh::keys::decode_secret_key(&key_str, Some(passphrase.as_str()))
+            .map_err(|e| format!("Failed to decode key: {}", e))
+    }
 }
 
 /// Request sent from Rust to frontend to trigger biometric authentication.
@@ -268,6 +282,12 @@ impl KeyManager for AndroidKeyManager {
 
         // Biometric succeeded — decrypt and sign using the base manager
         self.base_manager.sign(id, data, reason).await
+    }
+
+    async fn get_russh_key(&self, id: &str) -> Result<russh::keys::PrivateKey, String> {
+        // Trigger biometric prompt before providing the key
+        self.request_biometric(id, "Connect to SSH").await?;
+        self.base_manager.get_russh_key(id).await
     }
 }
 

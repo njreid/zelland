@@ -18,7 +18,7 @@ export interface Host {
     username: string;
     password?: string;
     reachable: boolean;
-    error?: string; // Connection error description
+    error?: string;
     projects: Project[];
 }
 
@@ -36,81 +36,82 @@ export interface Session {
     status: 'disconnected' | 'connecting' | 'connected' | 'error';
 }
 
-export interface AppState {
-    hosts: Host[];
-    sessions: Session[];
-    activeSessionId: string | null;
-    status: 'disconnected' | 'connecting' | 'connected' | 'error';
-    error: string | null;
-    terminalFocusTrigger: number;
-    terminalResizeTrigger: number;
-    viewUpdateTrigger: Record<string, number>;
-    loadedFiles: Record<string, boolean>;
-    openMarkdownFiles: string[];
-    navigationTrigger: number; // Index to scroll to
-    recentSessionIds: string[];
-    terminalFontSize: number;
-    terminalFontWeight: string;
-    markdownFontSize: number;
-    markdownFontWeight: string;
-    logs: { message: string, type: 'info' | 'error' }[];
-    sshKeys: any[];
-    daemonConnected: boolean;
-}
-
 const STORE_PATH = "settings.json";
 
 function createAppState() {
-    let state = $state<AppState>({
-        hosts: [],
-        sessions: [],
-        activeSessionId: null,
-        status: 'disconnected',
-        error: null,
-        terminalFocusTrigger: 0,
-        terminalResizeTrigger: 0,
-        viewUpdateTrigger: {},
-        loadedFiles: {},
-        openMarkdownFiles: ['README.md', 'PLAN.md', 'DESIGN.md'],
-        navigationTrigger: -1,
-        recentSessionIds: [],
-        terminalFontSize: 14,
-        terminalFontWeight: '400',
-        markdownFontSize: 16,
-        markdownFontWeight: '400',
-        logs: [],
-        sshKeys: [],
-        daemonConnected: false,
+    // --- State ---
+    let hosts = $state<Host[]>([]);
+    let sessions = $state<Session[]>([]);
+    let activeSessionId = $state<string | null>(null);
+    let terminalFocusTrigger = $state(0);
+    let terminalResizeTrigger = $state(0);
+    let viewUpdateTrigger = $state<Record<string, number>>({});
+    let loadedFiles = $state<Record<string, boolean>>({});
+    let openMarkdownFiles = $state<string[]>(['README.md', 'PLAN.md', 'DESIGN.md']);
+    let navigationTrigger = $state(-1);
+    let recentSessionIds = $state<string[]>([]);
+    let terminalFontSize = $state(14);
+    let terminalFontWeight = $state('400');
+    let markdownFontSize = $state(16);
+    let markdownFontWeight = $state('400');
+    let logs = $state<{ message: string, type: 'info' | 'error' }[]>([]);
+    let sshKeys = $state<any[]>([]);
+    let daemonConnected = $state(false);
+
+    // --- Derived ---
+    const activeSession = $derived(
+        activeSessionId ? sessions.find(s => s.id === activeSessionId) || null : null
+    );
+
+    const activeProject = $derived.by(() => {
+        const session = activeSession;
+        if (!session) return null;
+        const host = hosts.find(h => h.address === session.hostAddress);
+        return host?.projects.find(p => p.session_name === session.zellijSession) || null;
     });
 
+    const recentSessions = $derived(
+        recentSessionIds
+            .map(id => sessions.find(s => s.id === id))
+            .filter((s): s is Session => s !== undefined)
+    );
+
+    // --- Helpers ---
     function log(message: string, type: 'info' | 'error' = 'info') {
-        state.logs.push({ message, type });
-        if (state.logs.length > 50) state.logs.shift();
+        logs.push({ message, type });
+        if (logs.length > 50) logs.shift();
+    }
+
+    async function saveToStore() {
+        try {
+            const store = await load(STORE_PATH);
+            await store.set("hosts", hosts.map(({ id, label, address, username, password }) => ({
+                id, label, address, username, password
+            })));
+            await store.set("sessions", sessions.map(({ id, label, hostAddress, username, password, port, type, zellijSession, key_id, private_key_path }) => ({
+                id, label, hostAddress, username, password, port, type, zellijSession, key_id, private_key_path
+            })));
+            await store.set("terminalFontSize", terminalFontSize);
+            await store.set("terminalFontWeight", terminalFontWeight);
+            await store.set("markdownFontSize", markdownFontSize);
+            await store.set("markdownFontWeight", markdownFontWeight);
+            await store.set("recentSessionIds", recentSessionIds);
+            await store.save();
+        } catch (e) {
+            console.error("Failed to save to store:", e);
+        }
     }
 
     async function fetchSshKeys() {
         try {
-            state.sshKeys = await invoke<any[]>("list_ssh_keys");
+            sshKeys = await invoke<any[]>("list_ssh_keys");
         } catch (e) {
             console.error("Failed to fetch SSH keys:", e);
         }
     }
 
-    // Listen for events from daemon
-    listen("daemon-event", (event: any) => {
-        const payload = event.payload.payload;
-        if (payload && payload.OpenView) {
-            const req = payload.OpenView;
-            log(`Received view update: ${req.title}`);
-            if (!state.viewUpdateTrigger[req.title]) {
-                state.viewUpdateTrigger[req.title] = 0;
-            }
-            state.viewUpdateTrigger[req.title] += 1;
-        }
-    });
-
     async function fetchProjectsForHost(hostId: string) {
-        const host = state.hosts.find(h => h.id === hostId);
+        const host = hosts.find(h => h.id === hostId);
         if (!host) return;
 
         try {
@@ -129,31 +130,8 @@ function createAppState() {
         }
     }
 
-    async function saveToStore() {
-        try {
-            const store = await load(STORE_PATH);
-            const hostsToSave = state.hosts.map(({ id, label, address, username, password }) => ({
-                id, label, address, username, password
-            }));
-            const sessionsToSave = state.sessions.map(({ id, label, hostAddress, username, password, port, type, zellijSession, key_id, private_key_path }) => ({
-                id, label, hostAddress, username, password, port, type, zellijSession, key_id, private_key_path
-            }));
-
-            await store.set("hosts", hostsToSave);
-            await store.set("sessions", sessionsToSave);
-            await store.set("terminalFontSize", state.terminalFontSize);
-            await store.set("terminalFontWeight", state.terminalFontWeight);
-            await store.set("markdownFontSize", state.markdownFontSize);
-            await store.set("markdownFontWeight", state.markdownFontWeight);
-            await store.set("recentSessionIds", state.recentSessionIds);
-            await store.save();
-        } catch (e) {
-            console.error("Failed to save to store:", e);
-        }
-    }
-
-    // Initialize store and load data
-    async function initStore() {
+    // --- Initialization ---
+    async function init() {
         try {
             const store = await load(STORE_PATH);
             const savedHosts = await store.get<Host[]>("hosts");
@@ -164,177 +142,120 @@ function createAppState() {
             const savedMarkdownFontWeight = await store.get<string>("markdownFontWeight");
             const savedRecentIds = await store.get<string[]>("recentSessionIds");
 
-            if (savedHosts) {
-                state.hosts = savedHosts.map(h => ({ ...h, reachable: false, projects: [] }));
-            }
-            if (savedSessions) {
-                state.sessions = savedSessions.map(s => ({ ...s, status: 'disconnected' }));
-            }
-            if (savedFontSize) {
-                state.terminalFontSize = savedFontSize;
-            }
-            if (savedFontWeight) {
-                state.terminalFontWeight = savedFontWeight;
-            }
-            if (savedMarkdownFontSize) {
-                state.markdownFontSize = savedMarkdownFontSize;
-            }
-            if (savedMarkdownFontWeight) {
-                state.markdownFontWeight = savedMarkdownFontWeight;
-            }
-            if (savedRecentIds) {
-                state.recentSessionIds = savedRecentIds;
-            }
+            if (savedHosts) hosts = savedHosts.map(h => ({ ...h, reachable: false, projects: [] }));
+            if (savedSessions) sessions = savedSessions.map(s => ({ ...s, status: 'disconnected' }));
+            if (savedFontSize) terminalFontSize = savedFontSize;
+            if (savedFontWeight) terminalFontWeight = savedFontWeight;
+            if (savedMarkdownFontSize) markdownFontSize = savedMarkdownFontSize;
+            if (savedMarkdownFontWeight) markdownFontWeight = savedMarkdownFontWeight;
+            if (savedRecentIds) recentSessionIds = savedRecentIds;
             
-            for (const host of state.hosts) {
-                fetchProjectsForHost(host.id);
-            }
-
+            for (const host of hosts) fetchProjectsForHost(host.id);
             fetchSshKeys();
         } catch (e) {
             console.error("Failed to load store:", e);
         }
+
+        // --- Event Listeners ---
+        listen("daemon-event", (event: any) => {
+            const payload = event.payload.payload;
+            if (payload?.OpenView) {
+                const req = payload.OpenView;
+                log(`Received view update: ${req.title}`);
+                if (!viewUpdateTrigger[req.title]) viewUpdateTrigger[req.title] = 0;
+                viewUpdateTrigger[req.title] += 1;
+            }
+        });
+
+        listen("tunnel-status", (event) => log(`Tunnel status: ${event.payload}`));
+        listen("tunnel-error", (event) => log(`Tunnel error: ${event.payload}`, 'error'));
+
+        listen("biometric-request", async (event: any) => {
+            const request = event.payload;
+            log(`Biometric auth requested for key: ${request.key_id}`);
+            try {
+                await invoke("biometric_result", {
+                    response: { request_id: request.request_id, success: true, error: null }
+                });
+            } catch (e) {
+                console.error("Failed to handle biometric request:", e);
+                await invoke("biometric_result", {
+                    response: { request_id: request.request_id, success: false, error: String(e) }
+                });
+            }
+        });
     }
 
-    initStore();
+    init();
 
-    // Listen for tunnel status events from Rust
-    listen("tunnel-status", (event) => {
-        log(`Tunnel status: ${event.payload}`);
-    });
-
-    listen("tunnel-error", (event) => {
-        log(`Tunnel error: ${event.payload}`, 'error');
-    });
-
-    // Listen for biometric authentication requests from the Rust backend (Android)
-    listen("biometric-request", async (event: any) => {
-        const request = event.payload;
-        log(`Biometric auth requested for key: ${request.key_id}`);
-        try {
-            // On Android, this would trigger the native BiometricPrompt via JNI.
-            // The result is sent back to Rust via the biometric_result command.
-            // For now on desktop, we auto-approve (no biometric hardware).
-            await invoke("biometric_result", {
-                response: {
-                    request_id: request.request_id,
-                    success: true,
-                    error: null
-                }
-            });
-        } catch (e) {
-            console.error("Failed to handle biometric request:", e);
-            await invoke("biometric_result", {
-                response: {
-                    request_id: request.request_id,
-                    success: false,
-                    error: String(e)
-                }
-            });
-        }
-    });
-
+    // --- Actions ---
     return {
-        get hosts() { return state.hosts; },
-        get sessions() { return state.sessions; },
-        get activeSessionId() { return state.activeSessionId; },
-        set activeSessionId(id: string | null) { state.activeSessionId = id; },
-        get terminalFocusTrigger() { return state.terminalFocusTrigger; },
-        get terminalResizeTrigger() { return state.terminalResizeTrigger; },
-        get terminalFontSize() { return state.terminalFontSize; },
-        get terminalFontWeight() { return state.terminalFontWeight; },
-        get markdownFontSize() { return state.markdownFontSize; },
-        get markdownFontWeight() { return state.markdownFontWeight; },
-        get loadedFiles() { return state.loadedFiles; },
-        get openMarkdownFiles() { return state.openMarkdownFiles; },
-        get recentSessions() {
-            return state.recentSessionIds
-                .map(id => state.sessions.find(s => s.id === id))
-                .filter((s): s is Session => s !== undefined);
-        },
-        get navigationTrigger() { return state.navigationTrigger; },
-        get logs() { return state.logs; },
-        get viewUpdateTrigger() { return state.viewUpdateTrigger; },
-        get sshKeys() { return state.sshKeys; },
-        get currentProject() { return this.activeProject; },
+        // State getters
+        get hosts() { return hosts; },
+        get sessions() { return sessions; },
+        get activeSessionId() { return activeSessionId; },
+        set activeSessionId(id: string | null) { activeSessionId = id; },
+        get activeSession() { return activeSession; },
+        get activeProject() { return activeProject; },
+        get recentSessions() { return recentSessions; },
+        get terminalFontSize() { return terminalFontSize; },
+        get terminalFontWeight() { return terminalFontWeight; },
+        get markdownFontSize() { return markdownFontSize; },
+        get markdownFontWeight() { return markdownFontWeight; },
+        get terminalFocusTrigger() { return terminalFocusTrigger; },
+        get terminalResizeTrigger() { return terminalResizeTrigger; },
+        get navigationTrigger() { return navigationTrigger; },
+        get openMarkdownFiles() { return openMarkdownFiles; },
+        get loadedFiles() { return loadedFiles; },
+        get logs() { return logs; },
+        get sshKeys() { return sshKeys; },
+        get viewUpdateTrigger() { return viewUpdateTrigger; },
+        get daemonConnected() { return daemonConnected; },
 
-        get activeSession() {
-            if (!state.activeSessionId) return null;
-            return state.sessions.find(s => s.id === state.activeSessionId) || null;
-        },
-
-        get activeProject() {
-            const session = this.activeSession;
-            if (!session) return null;
-            const host = state.hosts.find(h => h.address === session.hostAddress);
-            return host?.projects.find(p => p.session_name === session.zellijSession) || null;
-        },
-
-        scrollToPane(index: number) {
-            state.navigationTrigger = index;
-        },
-
+        // Methods
+        scrollToPane(index: number) { navigationTrigger = index; },
+        
         openMarkdownFile(filename: string) {
-            // Clean filename (remove ./ prefix)
             const cleanName = filename.startsWith('./') ? filename.slice(2) : filename;
-            
-            let index = state.openMarkdownFiles.indexOf(cleanName);
+            let index = openMarkdownFiles.indexOf(cleanName);
             if (index === -1) {
-                state.openMarkdownFiles.push(cleanName);
-                index = state.openMarkdownFiles.length - 1;
+                openMarkdownFiles.push(cleanName);
+                index = openMarkdownFiles.length - 1;
             }
-            // Add 1 to index because terminal is pane 0
             this.scrollToPane(index + 1);
         },
 
-        closeActiveSession() {
-            state.activeSessionId = null;
-        },
+        triggerTerminalFocus() { terminalFocusTrigger += 1; },
+        triggerTerminalResize() { terminalResizeTrigger += 1; },
+        setFileLoaded(filename: string, loaded: boolean) { loadedFiles[filename] = loaded; },
 
         setTerminalFontSize(size: number) {
-            console.log(`appState: setting terminalFontSize to ${size}`);
-            state.terminalFontSize = size;
+            terminalFontSize = size;
             saveToStore();
             this.triggerTerminalResize();
         },
 
         setTerminalFontWeight(weight: string) {
-            console.log(`appState: setting terminalFontWeight to ${weight}`);
-            state.terminalFontWeight = weight;
+            terminalFontWeight = weight;
             saveToStore();
             this.triggerTerminalResize();
         },
 
         setMarkdownFontSize(size: number) {
-            console.log(`appState: setting markdownFontSize to ${size}`);
-            state.markdownFontSize = size;
+            markdownFontSize = size;
             saveToStore();
         },
 
         setMarkdownFontWeight(weight: string) {
-            console.log(`appState: setting markdownFontWeight to ${weight}`);
-            state.markdownFontWeight = weight;
+            markdownFontWeight = weight;
             saveToStore();
-        },
-
-        setFileLoaded(filename: string, loaded: boolean) {
-            state.loadedFiles[filename] = loaded;
-        },
-
-        triggerTerminalFocus() {
-            state.terminalFocusTrigger += 1;
-        },
-
-        triggerTerminalResize() {
-            state.terminalResizeTrigger += 1;
         },
 
         async generateSshKey(label: string) {
             try {
                 await invoke("generate_ssh_key", { label });
-                await fetchSshKeys();
+                fetchSshKeys();
             } catch (e) {
-                console.error("Failed to generate SSH key:", e);
                 log(`Failed to generate SSH key: ${e}`, 'error');
             }
         },
@@ -342,96 +263,52 @@ function createAppState() {
         async deleteSshKey(id: string) {
             try {
                 await invoke("delete_ssh_key", { id });
-                await fetchSshKeys();
+                fetchSshKeys();
             } catch (e) {
-                console.error("Failed to delete SSH key:", e);
                 log(`Failed to delete SSH key: ${e}`, 'error');
             }
         },
 
-        async fetchSshKeys() {
-            await fetchSshKeys();
-        },
-
         async addHost(label: string, address: string, username: string, password?: string) {
             const id = crypto.randomUUID();
-            state.hosts.push({ 
-                id, label, address, username, password,
-                reachable: false, projects: [] 
-            });
+            hosts.push({ id, label, address, username, password, reachable: false, projects: [] });
             await saveToStore();
-            await fetchProjectsForHost(id);
+            fetchProjectsForHost(id);
         },
 
-        async fetchProjectsForHost(hostId: string) {
-            await fetchProjectsForHost(hostId);
-        },
+        async fetchProjectsForHost(hostId: string) { await fetchProjectsForHost(hostId); },
 
         async fetchAllProjects() {
-            for (const host of state.hosts) {
-                await fetchProjectsForHost(host.id);
-            }
+            for (const host of hosts) await fetchProjectsForHost(host.id);
         },
 
-        async activateProject(hostId: string, projectId: string) {
-            const host = state.hosts.find(h => h.id === hostId);
-            if (!host) return;
-
-            const project = host.projects.find(p => p.id === projectId);
-            if (!project) return;
-
-            const sessionId = `project-${project.id}`;
-            let session = state.sessions.find(s => s.id === sessionId);
-            
-            if (!session) {
-                session = {
-                    id: sessionId,
-                    label: project.name || project.session_name,
-                    hostAddress: host.address,
-                    username: host.username,
-                    password: host.password,
-                    port: 22,
-                    type: 'ssh',
-                    zellijSession: project.session_name,
-                    status: 'disconnected'
-                };
-                state.sessions.push(session);
-                await saveToStore();
-            }
-
-            await this.connectSession(sessionId);
+        async removeHost(hostId: string) {
+            hosts = hosts.filter(h => h.id !== hostId);
+            await saveToStore();
         },
 
         async addSession(label: string, hostAddress: string, username: string, type: 'ssh', zellijSession: string, password?: string, keyId?: string, privateKeyPath?: string) {
             const id = crypto.randomUUID();
-            state.sessions.push({
+            sessions.push({
                 id, label, hostAddress, username, password,
                 port: 22, type, zellijSession, status: 'disconnected',
-                key_id: keyId,
-                private_key_path: privateKeyPath
+                key_id: keyId, private_key_path: privateKeyPath
             });
             await saveToStore();
         },
 
-        async removeHost(hostId: string) {
-            state.hosts = state.hosts.filter(h => h.id !== hostId);
-            await saveToStore();
-        },
-
         async removeSession(sessionId: string) {
-            state.sessions = state.sessions.filter(s => s.id !== sessionId);
-            if (state.activeSessionId === sessionId) {
-                state.activeSessionId = null;
-            }
+            sessions = sessions.filter(s => s.id !== sessionId);
+            if (activeSessionId === sessionId) activeSessionId = null;
             await saveToStore();
         },
 
         async connectSession(sessionId: string) {
-            const session = state.sessions.find(s => s.id === sessionId);
+            const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
 
             session.status = 'connecting';
-            state.activeSessionId = sessionId;
+            activeSessionId = sessionId;
             log(`Connecting to session: ${session.label}...`);
 
             try {
@@ -454,36 +331,53 @@ function createAppState() {
                 session.status = 'connected';
                 log(`Connected to session: ${session.label}.`);
 
-                // Update recent sessions
-                state.recentSessionIds = [
-                    sessionId,
-                    ...state.recentSessionIds.filter(id => id !== sessionId)
-                ].slice(0, 3);
+                recentSessionIds = [sessionId, ...recentSessionIds.filter(id => id !== sessionId)].slice(0, 3);
                 saveToStore();
 
                 try {
-                    const wsUrl = `ws://${session.hostAddress}:8083/ws`;
-                    await invoke("daemon_connect", { url: wsUrl });
-                    state.daemonConnected = true;
+                    await invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` });
+                    daemonConnected = true;
                     log(`Connected to daemon at ${session.hostAddress}`);
                 } catch (de) {
-                    state.daemonConnected = false;
+                    daemonConnected = false;
                     console.warn("Daemon WebSocket connection failed:", de);
                 }
             } catch (e) {
-                state.daemonConnected = false;
-                const err = String(e);
-                console.error("Connection failed:", e);
+                daemonConnected = false;
                 session.status = 'error';
-                state.error = err;
-                log(`Connection failed for ${session.label}: ${err}`, 'error');
+                log(`Connection failed for ${session.label}: ${e}`, 'error');
             }
         },
 
-        async writeInput(sessionId: string, data: number[]) {
-            const session = state.sessions.find(s => s.id === sessionId);
-            if (!session) return;
+        async activateProject(hostId: string, projectId: string) {
+            const host = hosts.find(h => h.id === hostId);
+            if (!host) return;
+            const project = host.projects.find(p => p.id === projectId);
+            if (!project) return;
 
+            const sessionId = `project-${project.id}`;
+            let session = sessions.find(s => s.id === sessionId);
+            
+            if (!session) {
+                session = {
+                    id: sessionId,
+                    label: project.name || project.session_name,
+                    hostAddress: host.address,
+                    username: host.username,
+                    password: host.password,
+                    port: 22,
+                    type: 'ssh',
+                    zellijSession: project.session_name,
+                    status: 'disconnected'
+                };
+                sessions.push(session);
+                await saveToStore();
+            }
+
+            await this.connectSession(sessionId);
+        },
+
+        async writeInput(sessionId: string, data: number[]) {
             try {
                 await invoke("ssh_write", { tabId: sessionId, data });
             } catch (e) {
@@ -492,10 +386,10 @@ function createAppState() {
         },
 
         async runZellijAction(sessionId: string, action: string) {
-            const session = state.sessions.find(s => s.id === sessionId);
+            const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
 
-            if (state.daemonConnected) {
+            if (daemonConnected) {
                 try {
                     await invoke("daemon_run_zellij_action", { action, sessionName: session.zellijSession });
                     return;
@@ -505,36 +399,35 @@ function createAppState() {
             }
 
             const authMethod = session.key_id ? "Key" : session.private_key_path ? "PrivateKey" : "Password";
-            const config = {
-                host: session.hostAddress,
-                port: session.port,
-                username: session.username,
-                auth_method: authMethod,
-                password: session.password || null,
-                private_key_path: session.private_key_path || null,
-                private_key_passphrase: null,
-                key_id: session.key_id || null,
-                session_name: session.zellijSession
-            };
-
             const command = `zellij -s ${session.zellijSession} action ${action}`;
             try {
-                await invoke("run_remote_command", { config, command });
+                await invoke("run_remote_command", { 
+                    config: {
+                        host: session.hostAddress,
+                        port: session.port,
+                        username: session.username,
+                        auth_method: authMethod,
+                        password: session.password || null,
+                        private_key_path: session.private_key_path || null,
+                        private_key_passphrase: null,
+                        key_id: session.key_id || null,
+                        session_name: session.zellijSession
+                    },
+                    command 
+                });
             } catch (e) {
-                console.error("Failed to run zellij action via SSH:", e);
                 log(`Failed to run zellij action: ${e}`, 'error');
             }
         },
 
         async resize(sessionId: string, rows: number, cols: number) {
-            if (!sessionId) return;
-            const session = state.sessions.find(s => s.id === sessionId);
-            if (!session || session.status !== 'connected') return;
-
-            try {
-                await invoke("ssh_resize", { tabId: sessionId, rows, cols });
-            } catch (e) {
-                console.error("Failed to resize session:", e);
+            const session = sessions.find(s => s.id === sessionId);
+            if (session?.status === 'connected') {
+                try {
+                    await invoke("ssh_resize", { tabId: sessionId, rows, cols });
+                } catch (e) {
+                    console.error("Failed to resize session:", e);
+                }
             }
         }
     };

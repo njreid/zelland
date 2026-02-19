@@ -24,12 +24,14 @@ pub struct Project {
 
 pub struct DaemonManager {
     pub ws_write: Arc<Mutex<Option<futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>>>>,
+    pub http_client: reqwest::Client,
 }
 
 impl DaemonManager {
     pub fn new() -> Self {
         Self {
             ws_write: Arc::new(Mutex::new(None)),
+            http_client: reqwest::Client::new(),
         }
     }
 
@@ -111,10 +113,9 @@ impl DaemonManager {
 }
 
 #[tauri::command]
-pub async fn daemon_get_projects(url: String) -> Result<Vec<Project>, String> {
+pub async fn daemon_get_projects(state: tauri::State<'_, DaemonManager>, url: String) -> Result<Vec<Project>, String> {
     debug!("Fetching projects from daemon: {}", url);
-    let client = reqwest::Client::new();
-    let res = client.get(format!("{}/api/v1/projects", url))
+    let res = state.http_client.get(format!("{}/api/v1/projects", url))
         .send().await
         .map_err(|e| {
             error!("Failed to fetch projects from {}: {}", url, e);
@@ -132,10 +133,9 @@ pub async fn daemon_get_projects(url: String) -> Result<Vec<Project>, String> {
 }
 
 #[tauri::command]
-pub async fn daemon_activate_project(url: String, project_id: String) -> Result<(), String> {
+pub async fn daemon_activate_project(state: tauri::State<'_, DaemonManager>, url: String, project_id: String) -> Result<(), String> {
     info!("Activating project {} via daemon at {}", project_id, url);
-    let client = reqwest::Client::new();
-    let res = client.post(format!("{}/api/v1/projects/activate", url))
+    let res = state.http_client.post(format!("{}/api/v1/projects/activate", url))
         .json(&serde_json::json!({ "project_id": project_id }))
         .send().await
         .map_err(|e| {
@@ -153,10 +153,9 @@ pub async fn daemon_activate_project(url: String, project_id: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn daemon_read_file(url: String, path: String) -> Result<String, String> {
+pub async fn daemon_read_file(state: tauri::State<'_, DaemonManager>, url: String, path: String) -> Result<String, String> {
     debug!("Reading file via daemon: {} from {}", path, url);
-    let client = reqwest::Client::new();
-    let res = client.get(format!("{}/api/v1/fs/read", url))
+    let res = state.http_client.get(format!("{}/api/v1/fs/read", url))
         .query(&[("path", path.clone())])
         .send().await
         .map_err(|e| {
@@ -181,6 +180,7 @@ pub async fn daemon_read_file(url: String, path: String) -> Result<String, Strin
 
 #[tauri::command]
 pub async fn daemon_mutate_file(
+    state: tauri::State<'_, DaemonManager>,
     url: String,
     path: String,
     ann_id: String,
@@ -189,8 +189,7 @@ pub async fn daemon_mutate_file(
     suffix: String,
 ) -> Result<(), String> {
     debug!("Mutating file via daemon: {} for ann {}", path, ann_id);
-    let client = reqwest::Client::new();
-    let res = client.post(format!("{}/api/v1/fs/mutate", url))
+    let res = state.http_client.post(format!("{}/api/v1/fs/mutate", url))
         .json(&serde_json::json!({
             "path": path,
             "ann_id": ann_id,

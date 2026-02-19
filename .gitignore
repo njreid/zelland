@@ -42,10 +42,18 @@ node_modules/
 .vercel
 .netlify
 
-# Tauri
-src-tauri/target
-src-tauri/gen
+# Rust
+target/
+**/target/
+debug/
+release/
 
-# Rust daemon
-daemon-rs/target
+# ONNX / AI Models
+*.onnx
+*.bin
+*.model
+
+# Tauri
+src-tauri/gen
+**/src-tauri/gen
 

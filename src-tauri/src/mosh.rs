@@ -1,5 +1,6 @@
 use tauri::{AppHandle, State, Emitter, Manager};
 use crate::ssh::{SshConfig, SshManager};
+use crate::ManagedKeyManager;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
@@ -31,6 +32,7 @@ impl MoshManager {
 pub async fn mosh_connect(
     app_handle: AppHandle,
     ssh_manager: State<'_, SshManager>,
+    key_manager: State<'_, ManagedKeyManager>,
     mosh_manager: State<'_, MoshManager>,
     tab_id: String,
     config: SshConfig,
@@ -39,7 +41,7 @@ pub async fn mosh_connect(
     // 1. Start mosh-server on remote via SSH.
     let cmd = format!("mosh-server new -c 256 -- sh -c \"zellij attach --create {} || $SHELL\"", config.session_name);
     debug!("Executing remote command via SSH: {}", cmd);
-    let output = ssh_manager.run_command(config.clone(), cmd).await
+    let output = ssh_manager.run_command(app_handle.clone(), config.clone(), cmd, key_manager.0.clone()).await
         .map_err(|e| {
             error!("Failed to start mosh-server via SSH: {}", e);
             e
