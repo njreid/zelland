@@ -1,4 +1,0 @@
-port 8083
-// cert_file "certs/cert.pem"
-// key_file "certs/key.pem"
-// projects_path "/home/njr/code"

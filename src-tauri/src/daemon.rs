@@ -3,13 +3,15 @@ pub mod proto {
 }
 
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, SinkExt};
 use tauri::{AppHandle, Emitter};
-use crate::daemon::proto::{Envelope, envelope::Payload};
+use crate::daemon::proto::{Envelope, envelope::Payload, ZellijAction};
 use prost::Message as _;
 use tauri_plugin_notification::NotificationExt;
 use serde::{Deserialize, Serialize};
 use log::{info, error, debug};
+use tokio::sync::Mutex;
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Project {
@@ -21,15 +23,17 @@ pub struct Project {
 }
 
 pub struct DaemonManager {
-    app_handle: AppHandle,
+    pub ws_write: Arc<Mutex<Option<futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>>>>,
 }
 
 impl DaemonManager {
-    pub fn new(app_handle: AppHandle) -> Self {
-        Self { app_handle }
+    pub fn new() -> Self {
+        Self {
+            ws_write: Arc::new(Mutex::new(None)),
+        }
     }
 
-    pub async fn connect(&self, url: String) -> Result<(), String> {
+    pub async fn connect(&self, url: String, app_handle: AppHandle) -> Result<(), String> {
         info!("Connecting to daemon at {}", url);
         let (ws_stream, _) = connect_async(url.clone()).await
             .map_err(|e| {
@@ -37,8 +41,13 @@ impl DaemonManager {
                 format!("WebSocket connection failed: {}", e)
             })?;
 
-        let (_, mut read) = ws_stream.split();
-        let app_handle = self.app_handle.clone();
+        let (write, mut read) = ws_stream.split();
+        
+        {
+            let mut ws_write = self.ws_write.lock().await;
+            *ws_write = Some(write);
+        }
+
         info!("Daemon connection established: {}", url);
 
         tokio::spawn(async move {
@@ -77,6 +86,27 @@ impl DaemonManager {
         });
 
         Ok(())
+    }
+
+    pub async fn send_action(&self, action: String, session_name: String) -> Result<(), String> {
+        let envelope = Envelope {
+            payload: Some(Payload::ZellijAction(ZellijAction {
+                action,
+                session_name,
+            })),
+        };
+
+        let mut buf = Vec::new();
+        envelope.encode(&mut buf).map_err(|e| e.to_string())?;
+
+        let mut ws_write = self.ws_write.lock().await;
+        if let Some(write) = ws_write.as_mut() {
+            write.send(Message::Binary(buf.into())).await
+                .map_err(|e| format!("Failed to send message: {}", e))?;
+            Ok(())
+        } else {
+            Err("Daemon not connected".to_string())
+        }
     }
 }
 
@@ -147,4 +177,38 @@ pub async fn daemon_read_file(url: String, path: String) -> Result<String, Strin
         })?;
     
     Ok(content)
+}
+
+#[tauri::command]
+pub async fn daemon_mutate_file(
+    url: String,
+    path: String,
+    ann_id: String,
+    quote: String,
+    prefix: String,
+    suffix: String,
+) -> Result<(), String> {
+    debug!("Mutating file via daemon: {} for ann {}", path, ann_id);
+    let client = reqwest::Client::new();
+    let res = client.post(format!("{}/api/v1/fs/mutate", url))
+        .json(&serde_json::json!({
+            "path": path,
+            "ann_id": ann_id,
+            "quote": quote,
+            "prefix": prefix,
+            "suffix": suffix,
+        }))
+        .send().await
+        .map_err(|e| {
+            error!("Failed to send mutate request for {}: {}", path, e);
+            e.to_string()
+        })?;
+    
+    if !res.status().is_success() {
+        let err = format!("Failed to mutate file: status {}", res.status());
+        error!("{}", err);
+        return Err(err);
+    }
+    
+    Ok(())
 }

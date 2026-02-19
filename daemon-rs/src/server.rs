@@ -1,21 +1,20 @@
-use axum::extract::connect_info::ConnectInfo;
-use axum::extract::{State, WebSocketUpgrade};
+use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-use tracing::{info, warn};
+use tokio::sync::mpsc;
+use tracing::{error, info, warn};
 
 use crate::assets::AssetManager;
 use crate::config::Config;
 use crate::handlers;
 use crate::watcher::{self, WatchCommand};
 use crate::ws::{self, ClientRegistry};
+use crate::yjs::DocManager;
 
 /// Shared application state, passed to all handlers via axum's State extractor.
 #[derive(Clone)]
@@ -23,8 +22,8 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub asset_manager: AssetManager,
     pub registry: ClientRegistry,
-    pub asset_paths: Arc<RwLock<HashMap<String, String>>>,
     pub watcher_tx: mpsc::Sender<WatchCommand>,
+    pub doc_manager: DocManager,
 }
 
 /// Build the axum router with all routes.
@@ -43,12 +42,23 @@ pub fn build_router(state: AppState) -> Router {
             post(handlers::projects::activate_project),
         )
         .route("/api/v1/fs/read", get(handlers::fs::read_file))
+        .route("/api/v1/fs/mutate", post(handlers::fs::mutate_file))
         // Trigger routes (loopback-only)
         .nest("/api/v1/trigger", trigger_routes)
         // Asset serving
         .route("/assets/{id}", get(handlers::assets::serve_asset))
         // WebSocket
         .route("/ws", get(ws_upgrade))
+        // Annotation endpoints
+        .route(
+            "/annotations/sync/{*filepath}",
+            get(handlers::annotations::annotation_sync),
+        )
+        .route(
+            "/annotations/{*filepath}",
+            get(handlers::annotations::get_annotations)
+                .put(handlers::annotations::put_annotations),
+        )
         .with_state(state)
 }
 
@@ -57,7 +67,7 @@ async fn ws_upgrade(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
-        ws::handle_ws(socket, state.registry, state.asset_paths)
+        ws::handle_ws(socket, state.registry, state.asset_manager)
     })
 }
 
@@ -84,22 +94,34 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     asset_manager.start_cleanup();
 
     let registry = ClientRegistry::new();
-    let asset_paths = Arc::new(RwLock::new(HashMap::new()));
+    let doc_manager = DocManager::new();
 
-    let watcher_tx = watcher::start_watcher(registry.clone(), asset_paths.clone());
+    let watcher_tx = watcher::start_watcher(registry.clone(), asset_manager.clone());
 
     let state = AppState {
         config: Arc::new(config.clone()),
         asset_manager,
         registry,
-        asset_paths,
         watcher_tx,
+        doc_manager: doc_manager.clone(),
     };
 
     let app = build_router(state).into_make_service_with_connect_info::<SocketAddr>();
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
 
-    info!("zellandd listening on {}", addr);
+    // Graceful shutdown: flush all YJS documents
+    let doc_manager_shutdown = doc_manager;
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            info!("Shutdown signal received, flushing documents...");
+            if let Err(e) = doc_manager_shutdown.flush_all().await {
+                error!("Failed to flush documents on shutdown: {}", e);
+            }
+            std::process::exit(0);
+        }
+    });
+
+    info!("zlnd listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -127,8 +149,8 @@ mod tests {
             config: Arc::new(config),
             asset_manager: AssetManager::new(),
             registry: ClientRegistry::new(),
-            asset_paths: Arc::new(RwLock::new(HashMap::new())),
             watcher_tx,
+            doc_manager: DocManager::new(),
         }
     }
 
@@ -186,12 +208,12 @@ mod tests {
         std::fs::write(&file, "hello world").unwrap();
 
         let app = build_router(state);
-        let uri = format!("/api/v1/fs/read?path={}", file.to_string_lossy());
+        let uri = "/api/v1/fs/read?path=hello.txt";
 
         let resp = app
             .oneshot(
                 Request::builder()
-                    .uri(&uri)
+                    .uri(uri)
                     .body(Body::empty())
                     .unwrap(),
             )

@@ -1,5 +1,165 @@
 use std::path::Path;
 
+// --- New annotation types (for .ann.kdl format, used by YJS sync) ---
+
+/// A comment in an annotation thread.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Comment {
+    pub id: String,
+    pub author: String,
+    pub created: String,
+    pub body: String,
+}
+
+/// Text selector for anchoring an annotation to document content.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Selector {
+    pub quote: String,
+    pub prefix: String,
+    pub suffix: String,
+}
+
+/// A rich annotation with selector and threaded comments.
+/// Stored in `.ann.kdl` sidecar files.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Ann {
+    pub id: String,
+    pub selector: Selector,
+    pub thread: Vec<Comment>,
+}
+
+/// Load annotations from a `.ann.kdl` file. Returns empty vec if file doesn't exist.
+pub fn load_anns(path: &Path) -> Result<Vec<Ann>, StoreError> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(StoreError::Io(e)),
+    };
+    parse_anns(&content)
+}
+
+/// Save annotations to a `.ann.kdl` file, overwriting any existing content.
+pub fn save_anns(path: &Path, anns: &[Ann]) -> Result<(), StoreError> {
+    let content = serialize_anns(anns);
+    std::fs::write(path, content).map_err(StoreError::Io)
+}
+
+fn parse_anns(input: &str) -> Result<Vec<Ann>, StoreError> {
+    let doc: kdl::KdlDocument = input.parse().map_err(StoreError::Kdl)?;
+    let mut anns = Vec::new();
+
+    for node in doc.nodes() {
+        if node.name().value() != "ann" {
+            continue;
+        }
+
+        let id = node
+            .entries()
+            .first()
+            .and_then(|e| e.value().as_string())
+            .unwrap_or("")
+            .to_string();
+
+        let children = match node.children() {
+            Some(c) => c,
+            None => continue,
+        };
+
+        // Parse selector
+        let selector = children
+            .get("selector")
+            .and_then(|s| s.children())
+            .map(|sc| Selector {
+                quote: get_child_value(sc, "quote").unwrap_or_default(),
+                prefix: get_child_value(sc, "prefix").unwrap_or_default(),
+                suffix: get_child_value(sc, "suffix").unwrap_or_default(),
+            })
+            .unwrap_or(Selector {
+                quote: String::new(),
+                prefix: String::new(),
+                suffix: String::new(),
+            });
+
+        // Parse thread
+        let mut thread = Vec::new();
+        if let Some(thread_node) = children.get("thread") {
+            if let Some(thread_children) = thread_node.children() {
+                for comment_node in thread_children.nodes() {
+                    if comment_node.name().value() != "comment" {
+                        continue;
+                    }
+                    let comment_id = get_prop(comment_node, "id").unwrap_or_default();
+                    let author = get_prop(comment_node, "author").unwrap_or_default();
+                    let created = get_prop(comment_node, "created").unwrap_or_default();
+                    let body = comment_node
+                        .children()
+                        .and_then(|c| get_child_value(c, "body"))
+                        .unwrap_or_default();
+
+                    thread.push(Comment {
+                        id: comment_id,
+                        author,
+                        created,
+                        body,
+                    });
+                }
+            }
+        }
+
+        anns.push(Ann {
+            id,
+            selector,
+            thread,
+        });
+    }
+
+    Ok(anns)
+}
+
+fn serialize_anns(anns: &[Ann]) -> String {
+    let mut out = String::new();
+    for ann in anns {
+        out.push_str(&format!("ann {} {{\n", kdl_quote(&ann.id)));
+        out.push_str("    selector {\n");
+        out.push_str(&format!("        quote {}\n", kdl_quote(&ann.selector.quote)));
+        out.push_str(&format!(
+            "        prefix {}\n",
+            kdl_quote(&ann.selector.prefix)
+        ));
+        out.push_str(&format!(
+            "        suffix {}\n",
+            kdl_quote(&ann.selector.suffix)
+        ));
+        out.push_str("    }\n");
+        out.push_str("    thread {\n");
+        for comment in &ann.thread {
+            out.push_str(&format!(
+                "        comment id={} author={} created={} {{\n",
+                kdl_quote(&comment.id),
+                kdl_quote(&comment.author),
+                kdl_quote(&comment.created),
+            ));
+            out.push_str(&format!("            body {}\n", kdl_quote(&comment.body)));
+            out.push_str("        }\n");
+        }
+        out.push_str("    }\n");
+        out.push_str("}\n");
+    }
+    out
+}
+
+/// Derive the `.ann.kdl` sidecar path from a source file path.
+/// `README.md` → `README.ann.kdl`, `docs/notes.txt` → `docs/notes.ann.kdl`
+pub fn ann_kdl_path(source_path: &Path) -> std::path::PathBuf {
+    let stem = source_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    source_path.with_file_name(format!("{}.ann.kdl", stem))
+}
+
+// --- Legacy annotation types (for protobuf WebSocket compat) ---
+
 /// An annotation stored in a KDL sidecar file.
 /// Matches the Go `kdl.Annotation` struct for wire compatibility.
 #[derive(Debug, Clone, PartialEq)]
@@ -296,5 +456,164 @@ mod tests {
         let loaded = load_annotations(&path).unwrap();
         assert_eq!(loaded[0].target_text, "text with \"quotes\"");
         assert_eq!(loaded[0].body, "body with \\backslash");
+    }
+
+    // --- .ann.kdl format tests ---
+
+    #[test]
+    fn test_load_anns_missing_file() {
+        let anns = load_anns(Path::new("/nonexistent/file.ann.kdl")).unwrap();
+        assert!(anns.is_empty());
+    }
+
+    #[test]
+    fn test_ann_kdl_roundtrip() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.ann.kdl");
+
+        let expected = vec![
+            Ann {
+                id: "k8f2a".into(),
+                selector: Selector {
+                    quote: "ESP32-S3".into(),
+                    prefix: "architecture of the ".into(),
+                    suffix: " microcontroller".into(),
+                },
+                thread: vec![
+                    Comment {
+                        id: "c001".into(),
+                        author: "njr".into(),
+                        created: "2026-02-10T14:30:00Z".into(),
+                        body: "Should we verify the power draw?".into(),
+                    },
+                    Comment {
+                        id: "c002".into(),
+                        author: "alice".into(),
+                        created: "2026-02-10T15:12:00Z".into(),
+                        body: "Yes - measured at **45uA** in deep sleep.".into(),
+                    },
+                ],
+            },
+            Ann {
+                id: "m3x9p".into(),
+                selector: Selector {
+                    quote: "userspace packet loop".into(),
+                    prefix: "Implement ".into(),
+                    suffix: " in `src-tauri".into(),
+                },
+                thread: vec![Comment {
+                    id: "c003".into(),
+                    author: "njr".into(),
+                    created: "2026-02-11T09:00:00Z".into(),
+                    body: "This is done - see `network.rs`.".into(),
+                }],
+            },
+        ];
+
+        save_anns(&path, &expected).unwrap();
+        let actual = load_anns(&path).unwrap();
+
+        assert_eq!(actual.len(), 2);
+        assert_eq!(actual[0].id, "k8f2a");
+        assert_eq!(actual[0].selector.quote, "ESP32-S3");
+        assert_eq!(actual[0].selector.prefix, "architecture of the ");
+        assert_eq!(actual[0].selector.suffix, " microcontroller");
+        assert_eq!(actual[0].thread.len(), 2);
+        assert_eq!(actual[0].thread[0].id, "c001");
+        assert_eq!(actual[0].thread[0].author, "njr");
+        assert_eq!(actual[0].thread[0].body, "Should we verify the power draw?");
+        assert_eq!(actual[0].thread[1].id, "c002");
+        assert_eq!(actual[0].thread[1].body, "Yes - measured at **45uA** in deep sleep.");
+
+        assert_eq!(actual[1].id, "m3x9p");
+        assert_eq!(actual[1].thread.len(), 1);
+    }
+
+    #[test]
+    fn test_ann_kdl_special_chars() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("special.ann.kdl");
+
+        let expected = vec![Ann {
+            id: "sp1".into(),
+            selector: Selector {
+                quote: "text with \"quotes\"".into(),
+                prefix: "before\\".into(),
+                suffix: "after".into(),
+            },
+            thread: vec![Comment {
+                id: "c1".into(),
+                author: "user".into(),
+                created: "2026-01-01T00:00:00Z".into(),
+                body: "body with \\backslash and \"quotes\"".into(),
+            }],
+        }];
+
+        save_anns(&path, &expected).unwrap();
+        let actual = load_anns(&path).unwrap();
+
+        assert_eq!(actual[0].selector.quote, "text with \"quotes\"");
+        assert_eq!(actual[0].selector.prefix, "before\\");
+        assert_eq!(actual[0].thread[0].body, "body with \\backslash and \"quotes\"");
+    }
+
+    #[test]
+    fn test_ann_kdl_empty_thread() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("empty_thread.ann.kdl");
+
+        let expected = vec![Ann {
+            id: "e1".into(),
+            selector: Selector {
+                quote: "some text".into(),
+                prefix: "".into(),
+                suffix: "".into(),
+            },
+            thread: Vec::new(),
+        }];
+
+        save_anns(&path, &expected).unwrap();
+        let actual = load_anns(&path).unwrap();
+
+        assert_eq!(actual.len(), 1);
+        assert_eq!(actual[0].id, "e1");
+        assert!(actual[0].thread.is_empty());
+    }
+
+    #[test]
+    fn test_ann_kdl_path_derivation() {
+        assert_eq!(
+            ann_kdl_path(Path::new("README.md")),
+            Path::new("README.ann.kdl")
+        );
+        assert_eq!(
+            ann_kdl_path(Path::new("docs/notes.txt")),
+            Path::new("docs/notes.ann.kdl")
+        );
+        assert_eq!(
+            ann_kdl_path(Path::new("/absolute/path/file.md")),
+            Path::new("/absolute/path/file.ann.kdl")
+        );
+    }
+
+    #[test]
+    fn test_ann_serde_json_roundtrip() {
+        let ann = Ann {
+            id: "test".into(),
+            selector: Selector {
+                quote: "hello".into(),
+                prefix: "".into(),
+                suffix: "".into(),
+            },
+            thread: vec![Comment {
+                id: "c1".into(),
+                author: "alice".into(),
+                created: "2026-01-01T00:00:00Z".into(),
+                body: "note".into(),
+            }],
+        };
+        let json = serde_json::to_string(&ann).unwrap();
+        let parsed: Ann = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ann);
     }
 }

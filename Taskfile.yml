@@ -21,7 +21,7 @@ tasks:
     desc: "Run the zelland daemon"
     dir: daemon-rs
     cmds:
-      - cargo run --bin zellandd
+      - cargo run --bin zlnd
 
   "dev:android":
     desc: "Run the app in development mode (Android)"
@@ -34,8 +34,8 @@ tasks:
     cmds:
       - mkdir -p ../build
       - cargo build --release
-      - cp target/release/zellandd ../build/zellandd
-      - cp target/release/zelland ../build/zelland
+      - cp target/release/zlnd ../build/zlnd
+      - cp target/release/zn ../build/zn
 
   "build:linux":
     desc: "Build the app for Linux (Production)"
@@ -89,12 +89,31 @@ tasks:
     cmds:
       - npm run tauri icon zelland_icon.png
 
+  "dev:voice":
+    desc: "Run Voice Terminal in development mode"
+    dir: src-voice
+    cmds:
+      - WEBKIT_DISABLE_DMABUF_RENDERER=1 RUST_LOG=debug npm run tauri dev 2>&1 | tee ../voice_dev_output.log
+
+  "build:voice":
+    desc: "Build Voice Terminal for Linux"
+    dir: src-voice
+    cmds:
+      - npm run tauri build
+
+  "test:voice":
+    desc: "Run Voice Terminal tests"
+    dir: src-voice/src-tauri
+    cmds:
+      - cargo test
+
   "test":
     desc: "Run tests"
     cmds:
       - npm run test
       - cd src-tauri && cargo test
       - cd daemon-rs && cargo test
+      - cd src-voice/src-tauri && cargo test
 
   "connect:android":
     desc: "Connect to Android device wirelessly (usage: task connect:android ADDR=192.168.1.5:PORT)"

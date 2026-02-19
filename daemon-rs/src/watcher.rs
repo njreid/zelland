@@ -1,10 +1,9 @@
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
+use crate::assets::AssetManager;
 use crate::proto::zelland::{self, envelope::Payload, Envelope, OpenViewRequest};
 use crate::ws::ClientRegistry;
 
@@ -28,7 +27,7 @@ pub fn detect_file_type(path: &Path) -> zelland::open_view_request::FileType {
 /// Start the file watcher loop. Returns a sender for WatchCommand.
 pub fn start_watcher(
     registry: ClientRegistry,
-    asset_paths: Arc<RwLock<HashMap<String, String>>>,
+    asset_manager: AssetManager,
 ) -> mpsc::Sender<WatchCommand> {
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<WatchCommand>(64);
 
@@ -63,7 +62,7 @@ pub fn start_watcher(
                     }
                 }
                 Some(event) = event_rx.recv() => {
-                    handle_event(&event, &registry, &asset_paths).await;
+                    handle_event(&event, &registry, &asset_manager).await;
                 }
                 else => break,
             }
@@ -76,22 +75,26 @@ pub fn start_watcher(
 async fn handle_event(
     event: &Event,
     registry: &ClientRegistry,
-    asset_paths: &Arc<RwLock<HashMap<String, String>>>,
+    asset_manager: &AssetManager,
 ) {
     if !matches!(event.kind, EventKind::Modify(_)) {
         return;
     }
 
     for path in &event.paths {
-        let path_str = path.to_string_lossy().to_string();
-
         // Reverse lookup: find asset_id for this path
-        let paths = asset_paths.read().await;
-        let asset_id = paths
-            .iter()
-            .find(|(_, p)| **p == path_str)
-            .map(|(id, _)| id.clone());
-        drop(paths);
+        // For now, we iterate over all assets. If this becomes a bottleneck, 
+        // AssetManager could maintain a reverse index.
+        let mut asset_id = None;
+        {
+            let map = asset_manager.assets.read().await;
+            for (id, entry) in map.iter() {
+                if entry.file_path == *path {
+                    asset_id = Some(id.clone());
+                    break;
+                }
+            }
+        }
 
         if let Some(asset_id) = asset_id {
             let ftype = detect_file_type(path);

@@ -63,6 +63,7 @@ declare module '$env/static/private' {
 	export const XDG_SESSION_TYPE: string;
 	export const npm_config_init_module: string;
 	export const SYSTEMD_EXEC_PID: string;
+	export const _: string;
 	export const XAUTHORITY: string;
 	export const SDKMAN_OFFLINE_MODE: string;
 	export const MOTD_SHOWN: string;
@@ -92,8 +93,8 @@ declare module '$env/static/private' {
 	export const npm_config_npm_version: string;
 	export const XDG_SESSION_CLASS: string;
 	export const WINIT_X11_SCALE_FACTOR: string;
-	export const LC_IDENTIFICATION: string;
 	export const TERM: string;
+	export const LC_IDENTIFICATION: string;
 	export const npm_package_name: string;
 	export const npm_config_prefix: string;
 	export const USER: string;
@@ -138,8 +139,13 @@ declare module '$env/static/private' {
 	export const ALACRITTY_WINDOW_ID: string;
 	export const npm_node_execpath: string;
 	export const LC_NUMERIC: string;
-	export const _: string;
+	export const TEST: string;
+	export const VITEST: string;
 	export const NODE_ENV: string;
+	export const PROD: string;
+	export const DEV: string;
+	export const BASE_URL: string;
+	export const MODE: string;
 }
 
 /**
@@ -206,6 +212,7 @@ declare module '$env/dynamic/private' {
 		XDG_SESSION_TYPE: string;
 		npm_config_init_module: string;
 		SYSTEMD_EXEC_PID: string;
+		_: string;
 		XAUTHORITY: string;
 		SDKMAN_OFFLINE_MODE: string;
 		MOTD_SHOWN: string;
@@ -235,8 +242,8 @@ declare module '$env/dynamic/private' {
 		npm_config_npm_version: string;
 		XDG_SESSION_CLASS: string;
 		WINIT_X11_SCALE_FACTOR: string;
-		LC_IDENTIFICATION: string;
 		TERM: string;
+		LC_IDENTIFICATION: string;
 		npm_package_name: string;
 		npm_config_prefix: string;
 		USER: string;
@@ -281,8 +288,13 @@ declare module '$env/dynamic/private' {
 		ALACRITTY_WINDOW_ID: string;
 		npm_node_execpath: string;
 		LC_NUMERIC: string;
-		_: string;
+		TEST: string;
+		VITEST: string;
 		NODE_ENV: string;
+		PROD: string;
+		DEV: string;
+		BASE_URL: string;
+		MODE: string;
 		[key: `PUBLIC_${string}`]: undefined;
 		[key: `${string}`]: string | undefined;
 	}

@@ -7,14 +7,14 @@ use tokio::sync::RwLock;
 const TTL: Duration = Duration::from_secs(30 * 60); // 30 minutes
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(5 * 60); // 5 minutes
 
-struct AssetEntry {
-    file_path: PathBuf,
-    expires_at: Instant,
+pub struct AssetEntry {
+    pub file_path: PathBuf,
+    pub expires_at: Instant,
 }
 
 #[derive(Clone)]
 pub struct AssetManager {
-    assets: Arc<RwLock<HashMap<String, AssetEntry>>>,
+    pub(crate) assets: Arc<RwLock<HashMap<String, AssetEntry>>>,
 }
 
 impl AssetManager {
@@ -61,6 +61,11 @@ impl AssetManager {
             return None;
         }
         Some(entry.file_path.clone())
+    }
+
+    /// Resolve an asset ID to its string path.
+    pub async fn resolve_to_string(&self, id: &str) -> Option<String> {
+        self.resolve(id).await.map(|p| p.to_string_lossy().to_string())
     }
 }
 

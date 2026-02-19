@@ -1,10 +1,10 @@
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
-use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
+use crate::assets::AssetManager;
 use crate::proto::zelland::{self, envelope::Payload, Envelope, KeepAlive};
 use crate::store;
 
@@ -43,7 +43,7 @@ impl ClientRegistry {
 pub async fn handle_ws(
     socket: WebSocket,
     registry: ClientRegistry,
-    asset_paths: Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
+    asset_manager: AssetManager,
 ) {
     let (mut sender, mut receiver) = socket.split();
     let mut broadcast_rx = registry.subscribe();
@@ -76,7 +76,7 @@ pub async fn handle_ws(
             Ok(Message::Binary(data)) => {
                 match Envelope::decode(&data[..]) {
                     Ok(envelope) => {
-                        handle_message(&envelope, &asset_paths).await;
+                        handle_message(&envelope, &asset_manager).await;
                     }
                     Err(e) => {
                         warn!("Failed to decode protobuf: {}", e);
@@ -101,11 +101,14 @@ pub async fn handle_ws(
 
 async fn handle_message(
     envelope: &Envelope,
-    asset_paths: &Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
+    asset_manager: &AssetManager,
 ) {
     match &envelope.payload {
         Some(Payload::Annotation(action)) => {
-            handle_annotation(action, asset_paths).await;
+            handle_annotation(action, asset_manager).await;
+        }
+        Some(Payload::ZellijAction(action)) => {
+            handle_zellij_action(action).await;
         }
         Some(other) => {
             debug!("Received message: {:?}", std::mem::discriminant(other));
@@ -114,16 +117,38 @@ async fn handle_message(
     }
 }
 
+async fn handle_zellij_action(action: &zelland::ZellijAction) {
+    info!("Executing Zellij action: {} on session: {}", action.action, action.session_name);
+    
+    let mut cmd = std::process::Command::new("zellij");
+    cmd.arg("-s").arg(&action.session_name)
+       .arg("action");
+    
+    for part in action.action.split_whitespace() {
+        cmd.arg(part);
+    }
+
+    match cmd.status() {
+        Ok(status) if status.success() => {
+            info!("Zellij action executed successfully");
+        }
+        Ok(status) => {
+            error!("Zellij action failed with status: {}", status);
+        }
+        Err(e) => {
+            error!("Failed to execute Zellij command: {}", e);
+        }
+    }
+}
+
 async fn handle_annotation(
     action: &zelland::AnnotationAction,
-    asset_paths: &Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
+    asset_manager: &AssetManager,
 ) {
-    let paths = asset_paths.read().await;
-    let file_path = paths
-        .get(&action.file_path)
-        .cloned()
+    let file_path = asset_manager
+        .resolve_to_string(&action.file_path)
+        .await
         .unwrap_or_else(|| action.file_path.clone());
-    drop(paths);
 
     let data = match &action.data {
         Some(d) => d,

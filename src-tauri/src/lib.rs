@@ -31,9 +31,13 @@ async fn ssh_resize(state: State<'_, SshManager>, tab_id: String, rows: u32, col
 }
 
 #[tauri::command]
-async fn daemon_connect(app_handle: AppHandle, url: String) -> Result<(), String> {
-    let manager = DaemonManager::new(app_handle);
-    manager.connect(url).await
+async fn daemon_connect(app_handle: AppHandle, state: State<'_, DaemonManager>, url: String) -> Result<(), String> {
+    state.connect(url, app_handle).await
+}
+
+#[tauri::command]
+async fn daemon_run_zellij_action(state: State<'_, DaemonManager>, action: String, session_name: String) -> Result<(), String> {
+    state.send_action(action, session_name).await
 }
 
 #[tauri::command]
@@ -104,6 +108,7 @@ pub fn run() {
         })
         .manage(SshManager::new())
         .manage(network::NetworkManager::new())
+        .manage(DaemonManager::new())
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -120,9 +125,11 @@ pub fn run() {
             ssh_resize,
             run_remote_command,
             daemon_connect,
+            daemon_run_zellij_action,
             daemon::daemon_get_projects,
             daemon::daemon_activate_project,
             daemon::daemon_read_file,
+            daemon::daemon_mutate_file,
             ssh_list_zellij_sessions,
             network::start_tunnel,
             network::stop_tunnel,

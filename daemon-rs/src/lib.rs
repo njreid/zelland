@@ -5,5 +5,7 @@ pub mod projects;
 pub mod proto;
 pub mod server;
 pub mod store;
+pub mod sync;
 pub mod watcher;
 pub mod ws;
+pub mod yjs;

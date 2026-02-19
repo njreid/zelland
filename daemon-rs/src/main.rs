@@ -2,7 +2,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "zellandd", about = "zelland companion daemon")]
+#[command(name = "zlnd", about = "zelland companion daemon")]
 struct Args {
     /// Path to KDL config file
     #[arg(long, short)]

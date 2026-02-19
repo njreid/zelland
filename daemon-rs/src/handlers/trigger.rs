@@ -5,6 +5,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use tracing::{error, info};
 
+use crate::handlers::utils::resolve_filepath;
 use crate::proto::zelland::{self, envelope::Payload, Envelope, OpenViewRequest};
 use crate::server::AppState;
 use crate::watcher::WatchCommand;
@@ -35,7 +36,8 @@ async fn generic_trigger(
     req: TriggerRequest,
     file_type: zelland::open_view_request::FileType,
 ) -> Result<String, (StatusCode, String)> {
-    let path = PathBuf::from(&req.path);
+    let abs_path_str = resolve_filepath(&state, &req.path);
+    let path = PathBuf::from(&abs_path_str);
 
     let asset_id = state
         .asset_manager
@@ -45,16 +47,9 @@ async fn generic_trigger(
             error!("Failed to register asset: {}", e);
             (
                 StatusCode::BAD_REQUEST,
-                format!("Failed to access file: {}", e),
+                format!("Failed to access file {}: {}", req.path, e),
             )
         })?;
-
-    // Store path mapping
-    state
-        .asset_paths
-        .write()
-        .await
-        .insert(asset_id.clone(), req.path.clone());
 
     // Add to file watcher
     let _ = state.watcher_tx.send(WatchCommand::Add(path)).await;

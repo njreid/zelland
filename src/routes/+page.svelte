@@ -38,6 +38,13 @@
         }
     }
 
+    // Reactive navigation
+    $effect(() => {
+        if (appState.navigationTrigger >= 0) {
+            scrollToPane(appState.navigationTrigger);
+        }
+    });
+
     // Close sidebar when a session becomes active
     $effect(() => {
         if (appState.activeSessionId) {
@@ -99,20 +106,12 @@
                 <ConnectionLogs />
             </section>
 
-            <!-- Pane 1: README.md -->
-            <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; border-left: 1px solid var(--pico-border-color); overflow-y: auto;">
-                <MarkdownPane filename="README.md" />
-            </section>
-
-            <!-- Pane 2: PLAN.md -->
-            <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; border-left: 1px solid var(--pico-border-color); overflow-y: auto;">
-                <MarkdownPane filename="PLAN.md" />
-            </section>
-
-            <!-- Pane 3: DESIGN.md -->
-            <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; border-left: 1px solid var(--pico-border-color); overflow-y: auto;">
-                <MarkdownPane filename="DESIGN.md" />
-            </section>
+            <!-- Markdown Panes -->
+            {#each appState.openMarkdownFiles as file}
+                <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; border-left: 1px solid var(--pico-border-color); overflow: hidden;">
+                    <MarkdownPane filename={file} />
+                </section>
+            {/each}
         </div>
     </div>
 

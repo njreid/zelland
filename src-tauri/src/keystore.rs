@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use tauri::Manager;
-use log::info;
 use russh_keys::PublicKeyBase64;
 use zeroize::Zeroizing;
 

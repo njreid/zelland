@@ -15,11 +15,10 @@
     }
 
     function sendZellijTab(n: number) {
-        // Use Ctrl+T key sequence through the active SSH channel — faster and more
-        // reliable than spawning a separate SSH connection for `zellij action go-to-tab`.
-        const seq = `\x14${n}`;
-        sendKey(seq);
-        onScrollToPane(0);
+        if (appState.activeSessionId) {
+            appState.runZellijAction(appState.activeSessionId, `go-to-tab ${n}`);
+            onScrollToPane(0);
+        }
     }
 
     async function closeWindow() {
@@ -36,8 +35,6 @@
         const session = appState.sessions.find(s => s.id === appState.activeSessionId);
         return session ? session.label : '';
     });
-
-    const ribbonFiles = ['README.md', 'PLAN.md', 'DESIGN.md'];
 </script>
 
 <div class="top-bar" data-tauri-drag-region>
@@ -56,7 +53,7 @@
             <button class="outline contrast tab-btn wide-unit" onclick={() => sendZellijTab(3)}>3</button>
             
             <!-- Markdown Nav Buttons -->
-            {#each ribbonFiles as file, i}
+            {#each appState.openMarkdownFiles as file, i}
                 {#if appState.loadedFiles[file]}
                     <button 
                         class="outline contrast tab-btn file-nav-btn" 
@@ -64,7 +61,7 @@
                         title="View {file}"
                     >
                         <span class="file-icon"><FileText size={12} /></span>
-                        {file.replace('.md', '')}
+                        {file.split('/').pop()?.replace('.md', '')}
                     </button>
                 {/if}
             {/each}

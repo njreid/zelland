@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package zelland;
+
+option go_package = "github.com/zelland/daemon/proto/zelland";
+option java_package = "com.zelland.proto";
+option java_multiple_files = true;
+
+// Wrapper for all WebSocket messages
+message Envelope {
+  oneof payload {
+    KeepAlive ping = 1;
+    OpenViewRequest open_view = 2;
+    AnnotationAction annotation = 3;
+    ClientStatus status = 4;
+    Notification notification = 5;
+    ListSessionsRequest list_sessions_req = 6;
+    ListSessionsResponse list_sessions_res = 7;
+    CreateSessionRequest create_session_req = 8;
+    ZellijAction zellij_action = 9;
+  }
+}
+
+message ZellijAction {
+  string action = 1; // e.g. "go-to-tab 1"
+  string session_name = 2;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated string sessions = 1;
+}
+
+message CreateSessionRequest {
+  string name = 1;
+}
+
+message Notification {
+  string title = 1;
+  string body = 2;
+}
+
+message KeepAlive {
+  int64 timestamp = 1;
+}
+
+message OpenViewRequest {
+  string asset_id = 1;
+  string url = 2; // https://host/assets/xyz
+  enum FileType {
+    UNKNOWN = 0;
+    IMAGE = 1;
+    MARKDOWN = 2;
+    PDF = 3;
+  }
+  FileType file_type = 3;
+  string title = 4;
+}
+
+message AnnotationAction {
+  enum ActionType {
+    CREATE = 0;
+    UPDATE = 1;
+    DELETE = 2;
+  }
+  ActionType type = 1;
+  string file_path = 2; // Or asset_id
+  AnnotationData data = 3;
+}
+
+message AnnotationData {
+  string id = 1;
+  string target_text = 2;
+  string context_hash = 3; // SHA of surrounding paragraph for robust anchoring
+  string body = 4; // The user's note
+  int64 timestamp = 5;
+}
+
+message ClientStatus {
+  enum ViewState {
+    TERMINAL = 0;
+    VIEWER = 1;
+  }
+  ViewState state = 1;
+  string active_asset_id = 2;
+}

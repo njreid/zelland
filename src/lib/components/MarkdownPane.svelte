@@ -1,40 +1,77 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { appState } from '$lib/stores/app.svelte';
     import { marked } from 'marked';
+    import { createAnnotationManager } from '$lib/annotations.svelte';
+    import { markedAnnotationExtension, highlightAnnotations } from '$lib/marked-annotations';
+    import AnnotationSidebar from './AnnotationSidebar.svelte';
+    import AnnotationForm from './AnnotationForm.svelte';
+    import { MessageSquareText } from 'lucide-svelte';
+    import { platform } from '@tauri-apps/plugin-os';
+
+    // Register the [|ID|] annotation anchor extension once
+    marked.use(markedAnnotationExtension);
 
     let { filename } = $props<{ filename: string }>();
     let content = $state('');
     let html = $derived(content ? marked.parse(content) : '');
+    let paneEl: HTMLDivElement | undefined = $state();
+    let isDesktop = $state(false);
+
+    const manager = createAnnotationManager();
+
+    // Sidebar state
+    let sidebarOpen = $state(false);
+    let activeAnnotationId = $state<string | null>(null);
+
+    // Selection state for annotation form
+    let selectionInfo = $state<{ 
+        quote: string; 
+        prefix: string; 
+        suffix: string;
+        top: number;
+        bottom: number;
+    } | null>(null);
+
+    function getActiveSessionInfo() {
+        const activeSession = appState.sessions.find(s => s.id === appState.activeSessionId);
+        if (!activeSession) return null;
+
+        const host = appState.hosts.find(h => h.address === activeSession.hostAddress);
+        const project = host?.projects.find(p => p.session_name === activeSession.zellijSession);
+        if (!project?.root_path) return null;
+
+        const projectName = project.root_path.split('/').filter(Boolean).pop() ?? '';
+        const filepath = `${projectName}/${filename}`;
+
+        return { hostAddress: activeSession.hostAddress, filepath, rootPath: project.root_path };
+    }
+
+    function getAuthor(): string {
+        const session = appState.sessions.find(s => s.id === appState.activeSessionId);
+        return session?.username ?? 'anon';
+    }
 
     async function loadContent() {
-        // Reset state before loading
         content = '';
         appState.setFileLoaded(filename, false);
 
-        const activeSession = appState.sessions.find(s => s.id === appState.activeSessionId);
-        if (!activeSession) return;
+        const info = getActiveSessionInfo();
+        if (!info) return;
 
         try {
-            const host = appState.hosts.find(h => h.address === activeSession.hostAddress);
-            const rootPath = host?.projects.find(p => p.session_name === activeSession.zellijSession)?.root_path;
-            
-            if (rootPath) {
-                const daemonUrl = `http://${activeSession.hostAddress}:8083`;
-                const path = `${rootPath}/${filename}`;
-                
-                // The invoke might throw or return an error string depending on Rust implementation
-                const res = await invoke<string>("daemon_read_file", { url: daemonUrl, path });
-                
-                // Heuristic: if it's a "no such file" error string, don't mark as loaded
-                if (res.includes("no such file") || res.includes("Status 404")) {
-                    console.warn(`File not found on daemon: ${filename}`);
-                    appState.setFileLoaded(filename, false);
-                } else {
-                    content = res;
-                    appState.setFileLoaded(filename, true);
-                }
+            const daemonUrl = `http://${info.hostAddress}:8083`;
+            const path = info.filepath;
+
+            const res = await invoke<string>("daemon_read_file", { url: daemonUrl, path });
+
+            if (res.includes("no such file") || res.includes("Status 404")) {
+                console.warn(`File not found on daemon: ${filename}`);
+                appState.setFileLoaded(filename, false);
+            } else {
+                content = res;
+                appState.setFileLoaded(filename, true);
             }
         } catch (e) {
             console.error(`Failed to load ${filename}:`, e);
@@ -42,35 +79,321 @@
         }
     }
 
-    onMount(() => {
+    function connectAnnotations() {
+        const info = getActiveSessionInfo();
+        if (info) {
+            manager.connect(info.hostAddress, info.filepath);
+        } else {
+            manager.disconnect();
+        }
+    }
+
+    // Handle text selection for creating annotations
+    function handleMouseUp() {
+        setTimeout(() => {
+            const sel = window.getSelection();
+            if (!sel || sel.isCollapsed || !sel.rangeCount || !paneEl) {
+                selectionInfo = null;
+                return;
+            }
+
+            // Only handle selections within our pane
+            const range = sel.getRangeAt(0);
+            if (!paneEl.contains(range.commonAncestorContainer)) {
+                selectionInfo = null;
+                return;
+            }
+
+            const quote = sel.toString().trim();
+            if (!quote || quote.length < 2) {
+                selectionInfo = null;
+                return;
+            }
+
+            const rect = range.getBoundingClientRect();
+            const paneRect = paneEl.getBoundingClientRect();
+            
+            // Calculate relative positions
+            const top = rect.top - paneRect.top;
+            const bottom = rect.bottom - paneRect.top;
+
+            // Extract prefix/suffix from the container's text
+            const fullText = paneEl.textContent ?? '';
+            const idx = fullText.indexOf(quote);
+            const prefix = idx >= 0 ? fullText.slice(Math.max(0, idx - 30), idx) : '';
+            const suffix = idx >= 0 ? fullText.slice(idx + quote.length, idx + quote.length + 30) : '';
+            
+            selectionInfo = { quote, prefix, suffix, top, bottom };
+            
+            if (isDesktop && !sidebarOpen) {
+                sidebarOpen = true;
+            }
+        }, 10);
+    }
+
+    async function handleCreate(body: string) {
+        if (!selectionInfo) return;
+        const author = getAuthor();
+        const annId = manager.createAnnotation(
+            selectionInfo.quote,
+            selectionInfo.prefix,
+            selectionInfo.suffix,
+            author,
+            body || undefined
+        );
+
+        if (annId) {
+            // Also mutate the source file on the server to include the marker
+            const info = getActiveSessionInfo();
+            if (info) {
+                try {
+                    const daemonUrl = `http://${info.hostAddress}:8083`;
+                    const path = info.filepath;
+                    await invoke("daemon_mutate_file", {
+                        url: daemonUrl,
+                        path,
+                        annId,
+                        quote: selectionInfo.quote,
+                        prefix: selectionInfo.prefix,
+                        suffix: selectionInfo.suffix
+                    });
+                } catch (e) {
+                    console.error("Failed to mutate source file:", e);
+                }
+            }
+        }
+
+        selectionInfo = null;
+        window.getSelection()?.removeAllRanges();
+        if (!sidebarOpen && manager.annotations.length > 0) {
+            sidebarOpen = true;
+        }
+    }
+
+    function handleScrollTo(annId: string) {
+        activeAnnotationId = annId;
+        if (!paneEl) return;
+        const el = paneEl.querySelector(`.ann-highlight[data-ann-id="${annId}"]`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('ann-flash');
+            setTimeout(() => el.classList.remove('ann-flash'), 1500);
+        }
+    }
+
+    function handleAddComment(annId: string, body: string) {
+        manager.addComment(annId, getAuthor(), body);
+    }
+
+    function handleDelete(annId: string) {
+        manager.deleteAnnotation(annId);
+        if (activeAnnotationId === annId) activeAnnotationId = null;
+    }
+
+    function handlePaneClick(e: MouseEvent) {
+        const target = e.target as HTMLElement;
+        
+        // Handle links
+        const link = target.closest('a') as HTMLAnchorElement | null;
+        if (link && link.getAttribute('href')) {
+            const href = link.getAttribute('href')!;
+            // Check if it's a relative markdown link
+            if (href.endsWith('.md') && !href.startsWith('http') && !href.startsWith('//')) {
+                e.preventDefault();
+                appState.openMarkdownFile(href);
+                return;
+            }
+        }
+
+        const highlight = target.closest('.ann-highlight') as HTMLElement | null;
+        if (highlight?.dataset.annId) {
+            activeAnnotationId = highlight.dataset.annId;
+            if (!sidebarOpen) sidebarOpen = true;
+        }
+    }
+
+    function goBack() {
+        appState.scrollToPane(0); // Back to terminal
+    }
+
+    function cancelSelection() {
+        selectionInfo = null;
+        window.getSelection()?.removeAllRanges();
+    }
+
+    onMount(async () => {
         loadContent();
+        connectAnnotations();
+        document.addEventListener('selectionchange', handleMouseUp);
+        
+        const osPlatform = await platform();
+        isDesktop = osPlatform === 'linux' || osPlatform === 'macos' || osPlatform === 'windows';
     });
 
+    onDestroy(() => {
+        manager.disconnect();
+        document.removeEventListener('selectionchange', handleMouseUp);
+    });
+
+    // Reload content when view update triggers fire
     $effect(() => {
         if (appState.viewUpdateTrigger && appState.viewUpdateTrigger[filename] !== undefined) {
             loadContent();
         }
     });
 
+    // Reconnect when active session changes
     $effect(() => {
         const _sid = appState.activeSessionId;
         loadContent();
+        connectAnnotations();
+    });
+
+    // Highlight annotations after HTML renders
+    $effect(() => {
+        const _html = html;
+        const _anns = manager.annotations;
+        if (paneEl && _html && _anns.length > 0) {
+            requestAnimationFrame(() => {
+                if (paneEl) highlightAnnotations(paneEl, _anns);
+            });
+        }
     });
 </script>
 
-<div class="markdown-pane container" id="pane-{filename}">
-    {#if html}
-        {@html html}
-    {:else}
-        <div style="display: flex; justify-content: center; align-items: center; height: 100%; color: var(--fg-dim);">
-            <small>No {filename} found for active session.</small>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="mdpane-root">
+    <div class="mdpane-content">
+        <div
+            class="markdown-pane container"
+            id="pane-{filename}"
+            bind:this={paneEl}
+            onmouseup={handleMouseUp}
+            onclick={handlePaneClick}
+        >
+            {#if html}
+                {@html html}
+            {:else}
+                <div class="mdpane-empty">
+                    <div class="text-center">
+                        <p><small>No {filename} found for active session.</small></p>
+                        <button class="outline secondary btn-sm" onclick={goBack}>Back to Terminal</button>
+                    </div>
+                </div>
+            {/if}
         </div>
+
+        {#if selectionInfo && !isDesktop}
+            <AnnotationForm
+                quote={selectionInfo.quote}
+                top={selectionInfo.bottom + 20}
+                mode="floating"
+                onCreate={handleCreate}
+                onCancel={cancelSelection}
+            />
+        {/if}
+    </div>
+
+    {#if sidebarOpen}
+        <AnnotationSidebar
+            annotations={manager.annotations}
+            {activeAnnotationId}
+            pendingAnnotation={isDesktop ? selectionInfo : null}
+            onScrollTo={handleScrollTo}
+            onAddComment={handleAddComment}
+            onCreate={handleCreate}
+            onCancel={cancelSelection}
+            onDelete={handleDelete}
+            onClose={() => { sidebarOpen = false; }}
+        />
+    {/if}
+
+    {#if manager.annotations.length > 0 && !sidebarOpen}
+        <button
+            class="ann-toggle-btn"
+            onclick={() => { sidebarOpen = true; }}
+            aria-label="Show annotations"
+        >
+            <MessageSquareText size={14} />
+            <span>{manager.annotations.length}</span>
+        </button>
     {/if}
 </div>
 
 <style>
+    .mdpane-root {
+        height: 100%;
+        position: relative;
+        display: flex;
+    }
+
+    .mdpane-content {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
     .markdown-pane {
+        flex: 1;
+        overflow-y: auto;
         padding: 1rem;
-        min-height: 100%;
+        min-height: 0;
+    }
+
+    .mdpane-empty {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        color: var(--fg-dim);
+    }
+
+    .markdown-pane :global(.ann-highlight) {
+        text-decoration: underline;
+        text-decoration-color: #3b82f6;
+        text-underline-offset: 2px;
+        background-color: rgba(59, 130, 246, 0.1);
+        cursor: pointer;
+        border-radius: 2px;
+    }
+
+    .markdown-pane :global(.ann-highlight:hover) {
+        background-color: rgba(59, 130, 246, 0.2);
+    }
+
+    .markdown-pane :global(.ann-highlight.ann-flash) {
+        background-color: rgba(59, 130, 246, 0.35);
+        transition: background-color 1.5s ease-out;
+    }
+
+    .markdown-pane :global(.ann-marker) {
+        display: none;
+    }
+
+    .ann-toggle-btn {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+        background: var(--bg-input);
+        border: 1px solid var(--pico-border-color);
+        border-radius: 6px;
+        color: var(--accent);
+        cursor: pointer;
+        z-index: 10;
+        opacity: 0.85;
+    }
+
+    .ann-toggle-btn:hover {
+        opacity: 1;
+        background: var(--bg-darker);
     }
 </style>

@@ -70,7 +70,7 @@ This document tracks the evolution of zelland into a resilient mobile command ce
 
 ### Phase 2: Daemon & Project API
 - [x] **Write Tests (API)**: Create mock daemon responses and client contract tests.
-- [x] **Daemon Updates (zellandd)**
+- [x] **Daemon Updates (zlnd)**
     - [x] Define `Project` KDL schema (host, session_name, root_path).
     - [x] Implement REST endpoints:
         - `GET /projects`: List available projects.
@@ -109,7 +109,7 @@ This document tracks the evolution of zelland into a resilient mobile command ce
 
 ### Phase 6: Daemon Migration (Go → Rust) & Annotation System
 
-Rewrite the companion daemon (`zellandd`) from Go to Rust to enable first-class YJS CRDT support via the `yrs` crate. The Go daemon is ~1,067 lines of source code. See `DAEMON_DESIGN.md` for architecture and `ANNOTATION_DESIGN.md` for the annotation system design.
+[x] **Daemon Migration (Go → Rust)**: The companion daemon (`zlnd`) has been rewritten from Go to Rust, enabling first-class YJS CRDT support. The Rust daemon (`daemon-rs`) matches the legacy Go API while adding robust real-time synchronization. See `DAEMON_DESIGN.md` for architecture and `ANNOTATION_DESIGN.md` for the annotation system design.
 
 #### 6A: Rust Daemon Scaffold
 - [x] Create `daemon-rs/` Cargo project with `axum`, `tokio`, `kdl`, `notify`, `prost`, `clap` dependencies.
@@ -148,23 +148,82 @@ Rewrite the companion daemon (`zellandd`) from Go to Rust to enable first-class 
 - [x] **Tests:** File type detection (md, images, pdf, unknown).
 
 #### 6G: CLI Binaries
-- [x] **`zellandd`** (`main.rs`): Entry point with `clap` flags (`--config`, `--port`).
-- [x] **`zelland`** (separate `[[bin]]`): CLI tool for `show` and `md` trigger commands via localhost HTTP.
+- [x] **`zlnd`** (`main.rs`): Entry point with `clap` flags (`--config`, `--port`).
+- [x] **`zn`** (separate `[[bin]]`): CLI tool for `show` and `md` trigger commands via localhost HTTP.
 - [x] **Integration tests:** Full API flow, WebSocket connect + ping, trigger from loopback.
 
 #### 6H: YJS Integration
-- [ ] Add `yrs` crate dependency.
-- [ ] **YJS document manager**: One `yrs::Doc` per annotation file, keyed by path.
-- [ ] **Sync endpoint** (`/annotations/{filepath}/sync`): YJS WebSocket sync protocol using `y-sync` crate.
-- [ ] **Persistence**: Load `.ann.kdl` → initialize YJS doc on cold start. Flush YJS state → `.ann.kdl` on debounced timer (5s) and on shutdown.
-- [ ] **KDL ↔ YJS bridge**: Serialize YJS annotation map to KDL format, and vice versa.
-- [ ] **Tests:** YJS doc creation, sync message handling, KDL↔YJS round-trip, concurrent edits.
+- [x] Add `yrs` crate dependency (v0.21, no `y-sync` — implemented sync protocol manually).
+- [x] **YJS document manager** (`yjs.rs`): One `yrs::Doc` per annotation file, keyed by path. `DocManager` with per-doc broadcast.
+- [x] **Sync endpoint** (`/annotations/sync/{*filepath}`): YJS WebSocket sync protocol, wire-compatible with `y-websocket` JS client.
+- [x] **REST endpoints**: `GET /annotations/{*filepath}` (read as JSON), `PUT /annotations/{*filepath}` (write, non-YJS fallback).
+- [x] **Persistence**: Load `.ann.kdl` → initialize YJS doc on cold start. Flush YJS state → `.ann.kdl` on debounced timer (5s) and on shutdown.
+- [x] **KDL ↔ YJS bridge**: `populate_doc()` (KDL→YJS) and `read_doc()` (YJS→KDL). New `Ann`/`Selector`/`Comment` types in `store.rs`.
+- [x] **Sync protocol** (`sync.rs`): lib0 varUint encoding, y-websocket message framing (SyncStep1/SyncStep2/Update/Awareness).
+- [x] **Tests:** 31 new tests — YJS doc creation, sync message encoding/decoding, KDL↔YJS round-trip, concurrent edits, flush to disk, REST roundtrip, WebSocket sync handshake. Total: 75 tests (70 unit + 5 integration).
 
 #### 6I: Integration & Cutover
-- [ ] Verify Tauri client (`daemon.rs`) works against new Rust daemon (same proto, same REST API).
+- [x] Verify Tauri client (`daemon.rs`) works against new Rust daemon (same proto, same REST API).
 - [x] Update `Taskfile.yml` `dev:daemon` to build/run Rust daemon.
-- [ ] Remove Go `daemon/` directory.
-- [ ] Update `DAEMON_DESIGN.md` and `ANNOTATION_DESIGN.md`.
+- [x] Remove Go `daemon/` directory.
+- [x] Update `DAEMON_DESIGN.md` and `ANNOTATION_DESIGN.md`.
+
+### Phase 7: Annotation Client (Svelte)
+
+[x] **Annotation Client (Svelte)**: Built the Svelte-side annotation system with YJS CRDT sync, inline rendering, and a sidecar mutation system.
+
+#### 7A: Core Plumbing
+- [x] Install `yjs`, `y-protocols`, `lib0` npm dependencies.
+- [x] Create `src/lib/annotations.ts` — annotation manager with Y.Doc + custom WebSocket provider (y-websocket binary protocol), reactive `Ann[]` via Svelte 5 runes.
+- [x] Create `src/lib/marked-annotations.ts` — custom `marked` inline extension for `[|ID|]` anchors + post-render highlight function.
+- [x] Integrate into `MarkdownPane.svelte` — connect on session, disconnect on destroy, highlight after render.
+
+#### 7B: Annotation Sidebar UI
+- [x] Create `AnnotationSidebar.svelte` — list of annotations per document, click to scroll.
+- [x] Create `AnnotationForm.svelte` — text selection → new annotation + first comment.
+- [x] Wire sidebar into page layout (collapsible panel).
+
+#### 7C: Annotation CRUD
+- [x] Create annotation from text selection (quote + prefix/suffix context).
+- [x] Add comment to existing annotation thread.
+- [x] Delete annotation.
+- [x] Optimistic local updates via YJS (no REST needed).
+- [x] **Source Mutation**: Added daemon endpoint to insert `[|ID|]` markers into Markdown source.
+
+#### 7D: Polish & Edge Cases
+- [x] Handle reconnect on network failure (exponential backoff).
+- [x] Handle document switch (disconnect old, connect new).
+- [x] Fuzzy text matching fallback when marker anchors are absent.
+- [x] Mobile gesture support for text selection (`selectionchange` tracking).
+
+### Phase 8: Voice Transcription (PTT)
+
+Integrate push-to-talk speech-to-text from the `src-voice/` prototype into the main app, using embedded ONNX models for Desktop and system ASR APIs for Android.
+
+#### 8A: Core Speech Backend (Rust)
+- [ ] **Port Speech Modules**: Move `speech/mod.rs`, `speech/engine.rs`, and `speech/audio.rs` from `src-voice` to `src-tauri/src/speech/`.
+- [ ] **Dependency Management**: Add `ort` (v2.0.0-rc.11), `tokenizers`, `cpal`, `rubato`, `ndarray`, and `hound` (dev-dependency) to `src-tauri/Cargo.toml`.
+- [ ] **Platform Abstraction**: Refactor `SpeechState` to support different engines per platform.
+    - [ ] Linux/Desktop: Use `SpeechEngine` with Moonshine Tiny (ONNX).
+    - [ ] Android: Use system-provided ASR.
+- [ ] **Tauri Commands**: Register `init_speech`, `start_recording`, `stop_and_transcribe`, `set_audio_device`, and `set_input_gain`.
+
+#### 8B: Android System ASR
+- [ ] **Permissions**: Add `android.permission.RECORD_AUDIO` to `AndroidManifest.xml`.
+- [ ] **Kotlin Bridge**: Implement `SpeechRecognizer` in `MainActivity.kt`.
+    - [ ] Handle `RecognitionListener` events (partial results, final result, errors).
+    - [ ] Create JNI methods or Tauri events to trigger/stop transcription.
+- [ ] **Rust Integration**: Implement `AndroidSpeechEngine` that communicates with the Kotlin side via `tauri::Emitter`.
+
+#### 8C: Frontend Integration (Svelte 5)
+- [ ] **VoiceInput Component**: Build a reusable PTT button + preview bar component with Svelte 5 runes.
+- [ ] **Annotation Integration**: Add voice input to `AnnotationForm.svelte` for hands-free commenting.
+- [ ] **Terminal Integration**: Add voice input shortcut (Alt+Space) to `Terminal.svelte` to inject text into the shell.
+
+#### 8D: Verification & Ported Tests
+- [ ] **Port Unit Tests**: Ensure `engine.rs` and `audio.rs` tests are running in the new context.
+- [ ] **Port Integration Tests**: Move `e2e_speech.rs` to `src-tauri/tests/` and verify with the `hound` fixture.
+- [ ] **Regression Testing**: Verify existing SSH, WireGuard, and Annotation features are unaffected by the new audio/inference dependencies.
 
 ### Future: Zellij Action Buttons
 Expose `zellij -s $SESSION action <action>` via `runZellijAction()` as UI buttons (TopBar for desktop, VirtualKeyboard for mobile).

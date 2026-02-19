@@ -46,9 +46,12 @@ export interface AppState {
     terminalResizeTrigger: number;
     viewUpdateTrigger: Record<string, number>;
     loadedFiles: Record<string, boolean>;
+    openMarkdownFiles: string[];
+    navigationTrigger: number; // Index to scroll to
     terminalFontSize: number;
     logs: { message: string, type: 'info' | 'error' }[];
     sshKeys: any[];
+    daemonConnected: boolean;
 }
 
 const STORE_PATH = "settings.json";
@@ -64,9 +67,12 @@ function createAppState() {
         terminalResizeTrigger: 0,
         viewUpdateTrigger: {},
         loadedFiles: {},
+        openMarkdownFiles: ['README.md', 'PLAN.md', 'DESIGN.md'],
+        navigationTrigger: -1,
         terminalFontSize: 14,
         logs: [],
         sshKeys: [],
+        daemonConnected: false,
     });
 
     function log(message: string, type: 'info' | 'error' = 'info') {
@@ -209,10 +215,29 @@ function createAppState() {
         get terminalResizeTrigger() { return state.terminalResizeTrigger; },
         get terminalFontSize() { return state.terminalFontSize; },
         get loadedFiles() { return state.loadedFiles; },
+        get openMarkdownFiles() { return state.openMarkdownFiles; },
+        get navigationTrigger() { return state.navigationTrigger; },
         get logs() { return state.logs; },
         get viewUpdateTrigger() { return state.viewUpdateTrigger; },
         get sshKeys() { return state.sshKeys; },
         get currentProject() { return null; },
+
+        scrollToPane(index: number) {
+            state.navigationTrigger = index;
+        },
+
+        openMarkdownFile(filename: string) {
+            // Clean filename (remove ./ prefix)
+            const cleanName = filename.startsWith('./') ? filename.slice(2) : filename;
+            
+            let index = state.openMarkdownFiles.indexOf(cleanName);
+            if (index === -1) {
+                state.openMarkdownFiles.push(cleanName);
+                index = state.openMarkdownFiles.length - 1;
+            }
+            // Add 1 to index because terminal is pane 0
+            this.scrollToPane(index + 1);
+        },
 
         closeActiveSession() {
             state.activeSessionId = null;
@@ -365,11 +390,14 @@ function createAppState() {
                 try {
                     const wsUrl = `ws://${session.hostAddress}:8083/ws`;
                     await invoke("daemon_connect", { url: wsUrl });
+                    state.daemonConnected = true;
                     log(`Connected to daemon at ${session.hostAddress}`);
                 } catch (de) {
+                    state.daemonConnected = false;
                     console.warn("Daemon WebSocket connection failed:", de);
                 }
             } catch (e) {
+                state.daemonConnected = false;
                 const err = String(e);
                 console.error("Connection failed:", e);
                 session.status = 'error';
@@ -393,6 +421,15 @@ function createAppState() {
             const session = state.sessions.find(s => s.id === sessionId);
             if (!session) return;
 
+            if (state.daemonConnected) {
+                try {
+                    await invoke("daemon_run_zellij_action", { action, sessionName: session.zellijSession });
+                    return;
+                } catch (e) {
+                    console.warn("Failed to run zellij action via daemon, falling back to SSH:", e);
+                }
+            }
+
             const authMethod = session.key_id ? "Key" : session.private_key_path ? "PrivateKey" : "Password";
             const config = {
                 host: session.hostAddress,
@@ -410,7 +447,7 @@ function createAppState() {
             try {
                 await invoke("run_remote_command", { config, command });
             } catch (e) {
-                console.error("Failed to run zellij action:", e);
+                console.error("Failed to run zellij action via SSH:", e);
                 log(`Failed to run zellij action: ${e}`, 'error');
             }
         },
@@ -418,7 +455,7 @@ function createAppState() {
         async resize(sessionId: string, rows: number, cols: number) {
             if (!sessionId) return;
             const session = state.sessions.find(s => s.id === sessionId);
-            if (!session) return;
+            if (!session || session.status !== 'connected') return;
 
             try {
                 await invoke("ssh_resize", { tabId: sessionId, rows, cols });

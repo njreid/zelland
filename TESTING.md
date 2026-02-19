@@ -25,7 +25,7 @@ The networking layer (`src-tauri/src/network.rs`) involving WireGuard (GotaTun) 
 ## 2. Daemon & Project API
 
 ### Strategy
-Since the daemon (`zellandd`) runs separately, the client-side testing relies on mocking the API responses.
+Since the daemon (`zlnd`) runs separately, the client-side testing relies on mocking the API responses.
 
 ### Test Types
 *   **Contract Tests**:
