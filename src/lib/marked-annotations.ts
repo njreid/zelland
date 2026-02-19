@@ -30,8 +30,30 @@ const annotationAnchor: TokenizerAndRendererExtension = {
 	}
 };
 
+/**
+ * Simple slugify for header IDs
+ */
+function slugify(text: string): string {
+	return text
+		.toLowerCase()
+		.replace(/[^\w\s-]/g, '')
+		.replace(/\s+/g, '-')
+		.replace(/-+/g, '-')
+		.trim();
+}
+
+const headerIds: MarkedExtension = {
+	renderer: {
+		heading({ text, depth }) {
+			const id = slugify(text);
+			return `<h${depth} id="${id}">${text}</h${depth}>\n`;
+		}
+	}
+};
+
 export const markedAnnotationExtension: MarkedExtension = {
-	extensions: [annotationAnchor]
+	extensions: [annotationAnchor],
+	renderer: headerIds.renderer
 };
 
 /**
@@ -64,6 +86,16 @@ export function highlightAnnotations(container: HTMLElement, anns: Ann[]) {
 			wrapByTextSearch(container, ann);
 		}
 	}
+}
+
+/**
+ * Returns the IDs of all annotations found in the container, 
+ * in the order they appear in the document.
+ */
+export function getAnnotationOrder(container: HTMLElement): string[] {
+	return Array.from(container.querySelectorAll('.ann-highlight'))
+		.map((el) => (el as HTMLElement).dataset.annId)
+		.filter((id, index, self) => id && self.indexOf(id) === index) as string[];
 }
 
 function wrapFromMarker(marker: Element, ann: Ann) {

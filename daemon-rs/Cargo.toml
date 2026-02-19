@@ -1,5 +1,5 @@
 [package]
-name = "zelland-daemon"
+name = "zlnd-daemon"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,7 +12,7 @@ name = "zn"
 path = "src/cli.rs"
 
 [lib]
-name = "zelland_daemon"
+name = "zlnd_daemon"
 path = "src/lib.rs"
 
 [build-dependencies]

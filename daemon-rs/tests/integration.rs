@@ -6,14 +6,14 @@ use yrs::{Map, ReadTxn, Transact};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use zelland_daemon::assets::AssetManager;
-use zelland_daemon::config::Config;
-use zelland_daemon::proto::zelland::{envelope::Payload, Envelope};
-use zelland_daemon::server::{build_router, AppState};
-use zelland_daemon::store::{Ann, Comment, Selector};
-use zelland_daemon::watcher::WatchCommand;
-use zelland_daemon::ws::ClientRegistry;
-use zelland_daemon::yjs::DocManager;
+use zlnd_daemon::assets::AssetManager;
+use zlnd_daemon::config::Config;
+use zlnd_daemon::proto::zelland::{envelope::Payload, Envelope};
+use zlnd_daemon::server::{build_router, AppState};
+use zlnd_daemon::store::{Ann, Comment, Selector};
+use zlnd_daemon::watcher::WatchCommand;
+use zlnd_daemon::ws::ClientRegistry;
+use zlnd_daemon::yjs::DocManager;
 
 /// Start the server on a random port and return the address.
 async fn start_test_server() -> (SocketAddr, tempfile::TempDir) {
@@ -206,7 +206,7 @@ async fn test_annotation_ws_sync() {
         },
         thread: vec![],
     }];
-    zelland_daemon::store::save_anns(&ann_file, &anns).unwrap();
+    zlnd_daemon::store::save_anns(&ann_file, &anns).unwrap();
 
     // Connect to sync endpoint
     let ws_url = format!("ws://{}/annotations/sync/project-a/README.md", addr);
@@ -225,7 +225,7 @@ async fn test_annotation_ws_sync() {
 
     // Send our SyncStep1 (empty state vector → request full state)
     let empty_sv = yrs::StateVector::default().encode_v1();
-    let step1 = zelland_daemon::sync::encode_sync_step1(&empty_sv);
+    let step1 = zlnd_daemon::sync::encode_sync_step1(&empty_sv);
     write
         .send(tokio_tungstenite::tungstenite::Message::Binary(step1.into()))
         .await
@@ -239,9 +239,9 @@ async fn test_annotation_ws_sync() {
     assert_eq!(data[1], 1); // SYNC_STEP2
 
     // Decode the update and apply to a local doc
-    let decoded = zelland_daemon::sync::decode_message(&data).unwrap();
+    let decoded = zlnd_daemon::sync::decode_message(&data).unwrap();
     match decoded {
-        zelland_daemon::sync::SyncMessage::SyncStep2(update_bytes) => {
+        zlnd_daemon::sync::SyncMessage::SyncStep2(update_bytes) => {
             let doc = yrs::Doc::new();
             {
                 let mut txn = doc.transact_mut();

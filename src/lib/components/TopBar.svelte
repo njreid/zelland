@@ -48,15 +48,15 @@
     <div class="center-group" data-tauri-drag-region>
         <div role="group" class="tab-group">
             <!-- Zellij Tabs -->
-            <button class="outline contrast tab-btn wide-unit" onclick={() => sendZellijTab(1)}>1</button>
-            <button class="outline contrast tab-btn wide-unit" onclick={() => sendZellijTab(2)}>2</button>
-            <button class="outline contrast tab-btn wide-unit" onclick={() => sendZellijTab(3)}>3</button>
+            <button class="outline contrast topbar-btn wide-unit" onclick={() => sendZellijTab(1)}>1</button>
+            <button class="outline contrast topbar-btn wide-unit" onclick={() => sendZellijTab(2)}>2</button>
+            <button class="outline contrast topbar-btn wide-unit" onclick={() => sendZellijTab(3)}>3</button>
             
             <!-- Markdown Nav Buttons -->
             {#each appState.openMarkdownFiles as file, i}
                 {#if appState.loadedFiles[file]}
                     <button 
-                        class="outline contrast tab-btn file-nav-btn" 
+                        class="outline contrast topbar-btn file-nav-btn" 
                         onclick={() => onScrollToPane(i + 1)}
                         title="View {file}"
                     >
@@ -139,18 +139,10 @@
     }
 
     .file-nav-btn {
-        height: 2.2rem;
         padding: 0 0.75rem !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.75rem;
         text-transform: uppercase;
         font-weight: bold;
         gap: 0.4rem;
-        background-color: #1e1e2e;
-        border-color: #313244;
-        color: #cdd6f4;
     }
 
     .file-icon {
@@ -158,12 +150,18 @@
         color: var(--pico-primary);
     }
 
-    .tab-btn {
+    .topbar-btn {
         background-color: #2a2b3d;
         border-color: #4a4b5d;
         color: #c0caf5;
+        height: 2.2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
     }
-    .tab-btn:active {
+
+    .topbar-btn:active {
         background-color: var(--pico-primary);
         color: white;
     }

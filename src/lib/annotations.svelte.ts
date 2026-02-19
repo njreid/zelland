@@ -137,6 +137,7 @@ export function createAnnotationManager() {
 	}
 
 	function connect(hostAddress: string, filepath: string) {
+		if (ws && ws.url.includes(filepath)) return; // Already connected or connecting to this file
 		disconnect();
 
 		doc = new Y.Doc();
@@ -203,8 +204,13 @@ export function createAnnotationManager() {
 			reconnectTimeout = null;
 		}
 		if (ws) {
-			ws.onclose = null; // Prevent reconnect loop
-			ws.close();
+			ws.onclose = null;
+			ws.onerror = null;
+			ws.onmessage = null;
+			ws.onopen = null;
+			if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+				ws.close();
+			}
 			ws = null;
 		}
 		if (doc) {

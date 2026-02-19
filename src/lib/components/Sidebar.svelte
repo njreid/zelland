@@ -74,12 +74,6 @@
 </script>
 
 <aside class="sidebar">
-    <nav>
-        <ul>
-            <li><strong class="title-font lowercase" style="color: var(--pico-primary);">zelland</strong></li>
-        </ul>
-    </nav>
-
     <!-- Forms -->
     {#if showAddHost}
         <article class="form-card">
@@ -143,21 +137,76 @@
                 <strong>Settings</strong>
                 <a href="#" onclick={(e) => { e.preventDefault(); showSettings = false; }} class="close"><X size={14} /></a>
             </header>
-            <div class="p-4 pt-0">
-                <div class="mb-4">
-                    <label>
-                        Terminal Font Size: {appState.terminalFontSize}px
-                        <input 
-                            type="range" 
-                            min="8" 
-                            max="32" 
-                            value={appState.terminalFontSize} 
-                            oninput={(e) => appState.setTerminalFontSize(parseInt(e.currentTarget.value))}
-                        />
-                    </label>
+            <div class="settings-content">
+                <div class="settings-item">
+                    <label class="settings-label-main">TERMINAL FONT</label>
+                    <div class="grid">
+                        <label>
+                            Size (px)
+                            <input 
+                                type="number" 
+                                value={appState.terminalFontSize} 
+                                onchange={(e) => appState.setTerminalFontSize(parseInt(e.currentTarget.value) || 14)}
+                            />
+                        </label>
+                        <label>
+                            Weight
+                            <select 
+                                value={appState.terminalFontWeight} 
+                                onchange={(e) => appState.setTerminalFontWeight(e.currentTarget.value)}
+                            >
+                                <option value="normal">Normal</option>
+                                <option value="bold">Bold</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                                <option value="300">300</option>
+                                <option value="400">400</option>
+                                <option value="500">500</option>
+                                <option value="600">600</option>
+                                <option value="700">700</option>
+                                <option value="800">800</option>
+                                <option value="900">900</option>
+                            </select>
+                        </label>
+                    </div>
                 </div>
 
-                <div class="ssh-keys-section">
+                <div class="settings-item">
+                    <label class="settings-label-main">DOCUMENT FONT</label>
+                    <div class="grid">
+                        <label>
+                            Size (px)
+                            <input 
+                                type="number" 
+                                value={appState.markdownFontSize} 
+                                onchange={(e) => appState.setMarkdownFontSize(parseInt(e.currentTarget.value) || 16)}
+                            />
+                        </label>
+                        <label>
+                            Weight
+                            <select 
+                                value={appState.markdownFontWeight} 
+                                onchange={(e) => appState.setMarkdownFontWeight(e.currentTarget.value)}
+                            >
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                                <option value="300">300</option>
+                                <option value="400">400</option>
+                                <option value="500">500</option>
+                                <option value="600">600</option>
+                                <option value="700">700</option>
+                                <option value="800">800</option>
+                                <option value="900">900</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-item">
+                    <button class="btn-sm" onclick={() => { showSettings = false; }}>Save Settings</button>
+                </div>
+
+                <div class="ssh-keys-section settings-item">
                     <div class="flex-row justify-between mb-2">
                         <small>SSH IDENTITIES</small>
                         <button class="outline contrast icon-only-tiny" onclick={() => { showKeyForm = !showKeyForm; }} title="Generate New Key">
@@ -412,6 +461,34 @@
         color: var(--error);
     }
 
+    .settings-content {
+        padding: 0 1.25rem 1.25rem 1.25rem;
+    }
+
+    .settings-item {
+        margin-bottom: 1.5rem;
+    }
+
+    .settings-label-main {
+        font-size: 0.7rem;
+        font-weight: bold;
+        color: var(--fg-dim);
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .settings-item input {
+        font-size: 0.85rem;
+        padding: 0.4rem;
+        margin-bottom: 0;
+    }
+
+    .settings-item label {
+        font-size: 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+
     .tree-container {
         flex: 1;
         overflow-y: auto;
@@ -436,12 +513,6 @@
         font-size: 0.85rem;
         list-style: none;
         cursor: pointer;
-    }
-    
-    .flex-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
     }
 
     .session-row-container {

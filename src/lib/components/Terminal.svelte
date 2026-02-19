@@ -22,6 +22,7 @@
             },
             fontFamily: 'InconsolataGoNerdFontMono, Monaco, monospace',
             fontSize: appState.terminalFontSize,
+            fontWeight: appState.terminalFontWeight as any,
             cursorBlink: true,
             scrollback: 0,
             allowProposedApi: true
@@ -79,9 +80,16 @@
     // Reactive resize trigger
     $effect(() => {
         if (appState.terminalResizeTrigger >= 0 && term && fitAddon) {
-            // Update font size if it changed
+            console.log(`Terminal: resize effect triggered (trigger=${appState.terminalResizeTrigger})`);
+            // Update font options if they changed
             if (term.options.fontSize !== appState.terminalFontSize) {
+                console.log(`Terminal: updating fontSize from ${term.options.fontSize} to ${appState.terminalFontSize}`);
                 term.options.fontSize = appState.terminalFontSize;
+            }
+            if (String(term.options.fontWeight) !== String(appState.terminalFontWeight)) {
+                console.log(`Terminal: updating fontWeight from ${term.options.fontWeight} to ${appState.terminalFontWeight}`);
+                term.options.fontWeight = appState.terminalFontWeight as any;
+                term.refresh(0, term.rows - 1);
             }
             
             // Wait a bit for MOSH/PTY to stabilize

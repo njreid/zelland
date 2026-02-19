@@ -39,6 +39,7 @@ declare module '$env/static/private' {
 	export const XDG_MENU_PREFIX: string;
 	export const ICEAUTHORITY: string;
 	export const NODE: string;
+	export const TAURI_ENV_DEBUG: string;
 	export const LC_ADDRESS: string;
 	export const JAVA_HOME: string;
 	export const LC_NAME: string;
@@ -59,6 +60,7 @@ declare module '$env/static/private' {
 	export const NIX_PROFILES: string;
 	export const LOGNAME: string;
 	export const XDG_SESSION_DESKTOP: string;
+	export const TAURI_ENV_PLATFORM: string;
 	export const ZELLIJ_PANE_ID: string;
 	export const XDG_SESSION_TYPE: string;
 	export const npm_config_init_module: string;
@@ -70,8 +72,8 @@ declare module '$env/static/private' {
 	export const GTK2_RC_FILES: string;
 	export const HOME: string;
 	export const MCFLY_HISTORY: string;
-	export const LC_PAPER: string;
 	export const LANG: string;
+	export const LC_PAPER: string;
 	export const MCFLY_HISTFILE: string;
 	export const _JAVA_AWT_WM_NONREPARENTING: string;
 	export const XDG_CURRENT_DESKTOP: string;
@@ -79,6 +81,7 @@ declare module '$env/static/private' {
 	export const MEMORY_PRESSURE_WATCH: string;
 	export const WAYLAND_DISPLAY: string;
 	export const NIX_SSL_CERT_FILE: string;
+	export const WEBKIT_DISABLE_DMABUF_RENDERER: string;
 	export const VIRTUAL_ENV_DISABLE_PROMPT: string;
 	export const MANROFFOPT: string;
 	export const XDG_SEAT_PATH: string;
@@ -90,26 +93,28 @@ declare module '$env/static/private' {
 	export const ALACRITTY_SOCKET: string;
 	export const npm_lifecycle_script: string;
 	export const XKB_DEFAULT_LAYOUT: string;
+	export const TAURI_ENV_PLATFORM_VERSION: string;
 	export const npm_config_npm_version: string;
 	export const XDG_SESSION_CLASS: string;
 	export const WINIT_X11_SCALE_FACTOR: string;
-	export const TERM: string;
+	export const TAURI_ENV_FAMILY: string;
 	export const LC_IDENTIFICATION: string;
+	export const TERM: string;
 	export const npm_package_name: string;
 	export const npm_config_prefix: string;
 	export const USER: string;
-	export const GIT_PAGER: string;
 	export const QT_WAYLAND_RECONNECT: string;
 	export const KDE_SESSION_VERSION: string;
 	export const PAM_KWALLET5_LOGIN: string;
 	export const MANPAGER: string;
 	export const SDKMAN_ENV: string;
+	export const TAURI_ENV_TARGET_TRIPLE: string;
 	export const SDKMAN_DIR: string;
 	export const DISPLAY: string;
 	export const npm_lifecycle_event: string;
 	export const SHLVL: string;
-	export const PAGER: string;
 	export const LC_TELEPHONE: string;
+	export const TAURI_CLI_VERBOSITY: string;
 	export const LC_MEASUREMENT: string;
 	export const XDG_VTNR: string;
 	export const SDKMAN_CANDIDATES_API: string;
@@ -118,11 +123,10 @@ declare module '$env/static/private' {
 	export const npm_config_user_agent: string;
 	export const npm_execpath: string;
 	export const XDG_RUNTIME_DIR: string;
-	export const GEMINI_CLI: string;
 	export const DEBUGINFOD_URLS: string;
-	export const npm_package_json: string;
 	export const LC_TIME: string;
-	export const GEMINI_CLI_NO_RELAUNCH: string;
+	export const npm_package_json: string;
+	export const TAURI_ENV_ARCH: string;
 	export const JOURNAL_STREAM: string;
 	export const XDG_DATA_DIRS: string;
 	export const KDE_FULL_SESSION: string;
@@ -139,13 +143,7 @@ declare module '$env/static/private' {
 	export const ALACRITTY_WINDOW_ID: string;
 	export const npm_node_execpath: string;
 	export const LC_NUMERIC: string;
-	export const TEST: string;
-	export const VITEST: string;
 	export const NODE_ENV: string;
-	export const PROD: string;
-	export const DEV: string;
-	export const BASE_URL: string;
-	export const MODE: string;
 }
 
 /**
@@ -188,6 +186,7 @@ declare module '$env/dynamic/private' {
 		XDG_MENU_PREFIX: string;
 		ICEAUTHORITY: string;
 		NODE: string;
+		TAURI_ENV_DEBUG: string;
 		LC_ADDRESS: string;
 		JAVA_HOME: string;
 		LC_NAME: string;
@@ -208,6 +207,7 @@ declare module '$env/dynamic/private' {
 		NIX_PROFILES: string;
 		LOGNAME: string;
 		XDG_SESSION_DESKTOP: string;
+		TAURI_ENV_PLATFORM: string;
 		ZELLIJ_PANE_ID: string;
 		XDG_SESSION_TYPE: string;
 		npm_config_init_module: string;
@@ -219,8 +219,8 @@ declare module '$env/dynamic/private' {
 		GTK2_RC_FILES: string;
 		HOME: string;
 		MCFLY_HISTORY: string;
-		LC_PAPER: string;
 		LANG: string;
+		LC_PAPER: string;
 		MCFLY_HISTFILE: string;
 		_JAVA_AWT_WM_NONREPARENTING: string;
 		XDG_CURRENT_DESKTOP: string;
@@ -228,6 +228,7 @@ declare module '$env/dynamic/private' {
 		MEMORY_PRESSURE_WATCH: string;
 		WAYLAND_DISPLAY: string;
 		NIX_SSL_CERT_FILE: string;
+		WEBKIT_DISABLE_DMABUF_RENDERER: string;
 		VIRTUAL_ENV_DISABLE_PROMPT: string;
 		MANROFFOPT: string;
 		XDG_SEAT_PATH: string;
@@ -239,26 +240,28 @@ declare module '$env/dynamic/private' {
 		ALACRITTY_SOCKET: string;
 		npm_lifecycle_script: string;
 		XKB_DEFAULT_LAYOUT: string;
+		TAURI_ENV_PLATFORM_VERSION: string;
 		npm_config_npm_version: string;
 		XDG_SESSION_CLASS: string;
 		WINIT_X11_SCALE_FACTOR: string;
-		TERM: string;
+		TAURI_ENV_FAMILY: string;
 		LC_IDENTIFICATION: string;
+		TERM: string;
 		npm_package_name: string;
 		npm_config_prefix: string;
 		USER: string;
-		GIT_PAGER: string;
 		QT_WAYLAND_RECONNECT: string;
 		KDE_SESSION_VERSION: string;
 		PAM_KWALLET5_LOGIN: string;
 		MANPAGER: string;
 		SDKMAN_ENV: string;
+		TAURI_ENV_TARGET_TRIPLE: string;
 		SDKMAN_DIR: string;
 		DISPLAY: string;
 		npm_lifecycle_event: string;
 		SHLVL: string;
-		PAGER: string;
 		LC_TELEPHONE: string;
+		TAURI_CLI_VERBOSITY: string;
 		LC_MEASUREMENT: string;
 		XDG_VTNR: string;
 		SDKMAN_CANDIDATES_API: string;
@@ -267,11 +270,10 @@ declare module '$env/dynamic/private' {
 		npm_config_user_agent: string;
 		npm_execpath: string;
 		XDG_RUNTIME_DIR: string;
-		GEMINI_CLI: string;
 		DEBUGINFOD_URLS: string;
-		npm_package_json: string;
 		LC_TIME: string;
-		GEMINI_CLI_NO_RELAUNCH: string;
+		npm_package_json: string;
+		TAURI_ENV_ARCH: string;
 		JOURNAL_STREAM: string;
 		XDG_DATA_DIRS: string;
 		KDE_FULL_SESSION: string;
@@ -288,13 +290,7 @@ declare module '$env/dynamic/private' {
 		ALACRITTY_WINDOW_ID: string;
 		npm_node_execpath: string;
 		LC_NUMERIC: string;
-		TEST: string;
-		VITEST: string;
 		NODE_ENV: string;
-		PROD: string;
-		DEV: string;
-		BASE_URL: string;
-		MODE: string;
 		[key: `PUBLIC_${string}`]: undefined;
 		[key: `${string}`]: string | undefined;
 	}

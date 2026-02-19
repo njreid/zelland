@@ -7,7 +7,7 @@
     import TopBar from '$lib/components/TopBar.svelte';
     import Sidebar from '$lib/components/Sidebar.svelte';
     import ConnectionLogs from '$lib/components/ConnectionLogs.svelte';
-    import { Menu } from 'lucide-svelte';
+    import { Menu, Monitor } from 'lucide-svelte';
     import { platform } from '@tauri-apps/plugin-os';
 
     let sidebarOpen = $state(false);
@@ -26,6 +26,12 @@
 
     function closeSidebar() {
         if (sidebarOpen) sidebarOpen = false;
+    }
+
+    async function connectSession(sessionId: string) {
+        await appState.connectSession(sessionId);
+        appState.triggerTerminalFocus();
+        appState.triggerTerminalResize();
     }
 
     function scrollToPane(index: number) {
@@ -78,7 +84,7 @@
             style="flex: 1; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; display: flex;"
         >
             <!-- Pane 0: Terminal -->
-            <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; position: relative; overflow-y: hidden;">
+            <section class="pane" style="border-left: none; position: relative;">
                 {#if appState.activeSessionId}
                     {#key appState.activeSessionId}
                         <Terminal tabId={appState.activeSessionId} />
@@ -95,9 +101,22 @@
                             
                             {#if !sidebarOpen}
                                 <footer>
-                                    <button class="outline contrast" onclick={(e) => { e.stopPropagation(); toggleSidebar(); }} style="width: auto; margin: 0 auto; display: flex; align-items: center; gap: 0.5rem;">
+                                    <button class="outline contrast" onclick={(e) => { e.stopPropagation(); toggleSidebar(); }} style="width: auto; margin: 0 auto 1rem auto; display: flex; align-items: center; gap: 0.5rem;">
                                         <Menu size={16} /> Open Sidebar
                                     </button>
+
+                                    {#if appState.recentSessions.length > 0}
+                                        <div class="recent-sessions">
+                                            <p><small class="secondary uppercase">Recent Sessions</small></p>
+                                            <div class="grid">
+                                                {#each appState.recentSessions as session}
+                                                    <button class="outline secondary btn-sm" onclick={() => connectSession(session.id)}>
+                                                        <Monitor size={14} /> {session.label}
+                                                    </button>
+                                                {/each}
+                                            </div>
+                                        </div>
+                                    {/if}
                                 </footer>
                             {/if}
                         </article>
@@ -108,7 +127,7 @@
 
             <!-- Markdown Panes -->
             {#each appState.openMarkdownFiles as file}
-                <section class="pane" style="scroll-snap-align: start; min-width: 100%; height: 100%; border-left: 1px solid var(--pico-border-color); overflow: hidden;">
+                <section class="pane">
                     <MarkdownPane filename={file} />
                 </section>
             {/each}
@@ -146,5 +165,26 @@
     
     .secondary {
         color: var(--fg-dim);
+    }
+
+    .recent-sessions {
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--pico-border-color);
+    }
+
+    .uppercase {
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+        margin-bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
     }
 </style>

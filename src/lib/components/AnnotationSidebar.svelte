@@ -56,6 +56,26 @@
         replyingTo = null;
     }
 
+    function handleReplyKeydown(e: KeyboardEvent, annId: string) {
+        if (e.key === 'Enter') {
+            // In sidebar, plain Enter submits for speed, unlike the main Markdown area
+            e.preventDefault();
+            submitReply(annId);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            replyingTo = null;
+            replyBody = '';
+        }
+    }
+
+    // Auto-focus reply textarea
+    $effect(() => {
+        if (replyingTo && sidebarEl) {
+            const textarea = sidebarEl.querySelector('.ann-reply-form textarea') as HTMLTextAreaElement | null;
+            textarea?.focus();
+        }
+    });
+
     function formatDate(iso: string): string {
         try {
             const d = new Date(iso);
@@ -112,11 +132,7 @@
                                     bind:value={replyBody}
                                     placeholder="Write a comment&hellip;"
                                     rows="2"
-                                    onkeydown={(e) => {
-                                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                                            submitReply(ann.id);
-                                        }
-                                    }}
+                                    onkeydown={(e) => handleReplyKeydown(e, ann.id)}
                                 ></textarea>
                                 <div class="ann-reply-btns">
                                     <button class="outline secondary btn-sm" onclick={() => { replyingTo = null; replyBody = ''; }}>

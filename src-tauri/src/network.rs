@@ -91,10 +91,10 @@ async fn start_tunnel_inner(_app_handle: AppHandle, state: &NetworkManager, conf
     peer.keepalive = Some(25);
 
     // 5. Build device
-    // Note: Creating TUN device "zelland0"
+    // Note: Creating TUN device "zn0"
     let builder = gotatun::device::build()
         .with_default_udp()
-        .create_tun("zelland0")
+        .create_tun("zn0")
         .map_err(|e| anyhow!("Failed to create TUN device: {}", e))?
         .with_peer(peer);
     

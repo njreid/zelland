@@ -1,6 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { highlightAnnotations } from './marked-annotations';
-import type { Ann } from './annotations.svelte';
+import { marked } from 'marked';
+import { markedAnnotationExtension, highlightAnnotations } from './marked-annotations';
+
+marked.use(markedAnnotationExtension);
+
+describe('marked markdown rendering', () => {
+    it('should generate IDs for headers', () => {
+        const md = '# Hello World\n## Section 2';
+        const html = marked.parse(md) as string;
+        expect(html).toContain('id="hello-world"');
+        expect(html).toContain('id="section-2"');
+    });
+});
 
 describe('marked-annotations highlight', () => {
     let container: HTMLElement;

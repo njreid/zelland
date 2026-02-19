@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "zn", about = "zelland CLI tool")]
+#[command(name = "zn", about = "zn CLI tool")]
 struct Args {
     #[command(subcommand)]
     command: Commands,

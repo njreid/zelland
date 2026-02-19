@@ -2670,34 +2670,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zelland-daemon"
-version = "0.1.0"
-dependencies = [
- "axum",
- "bytes",
- "chrono",
- "clap",
- "futures-util",
- "hex",
- "kdl",
- "notify",
- "prost",
- "prost-build",
- "rand 0.8.5",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "yrs",
-]
-
-[[package]]
 name = "zerocopy"
 version = "0.8.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2775,6 +2747,34 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "zlnd-daemon"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "chrono",
+ "clap",
+ "futures-util",
+ "hex",
+ "kdl",
+ "notify",
+ "prost",
+ "prost-build",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "yrs",
 ]
 
 [[package]]

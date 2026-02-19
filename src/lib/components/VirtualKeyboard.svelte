@@ -227,7 +227,7 @@
 
     /* Tab buttons specific styling */
     .tab-btn {
-        background-color: #2a2b3d; /* Different color */
+        background-color: #2a2b3d;
         border-color: #4a4b5d;
         color: #c0caf5;
     }

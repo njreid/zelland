@@ -48,7 +48,11 @@ export interface AppState {
     loadedFiles: Record<string, boolean>;
     openMarkdownFiles: string[];
     navigationTrigger: number; // Index to scroll to
+    recentSessionIds: string[];
     terminalFontSize: number;
+    terminalFontWeight: string;
+    markdownFontSize: number;
+    markdownFontWeight: string;
     logs: { message: string, type: 'info' | 'error' }[];
     sshKeys: any[];
     daemonConnected: boolean;
@@ -69,7 +73,11 @@ function createAppState() {
         loadedFiles: {},
         openMarkdownFiles: ['README.md', 'PLAN.md', 'DESIGN.md'],
         navigationTrigger: -1,
+        recentSessionIds: [],
         terminalFontSize: 14,
+        terminalFontWeight: '400',
+        markdownFontSize: 16,
+        markdownFontWeight: '400',
         logs: [],
         sshKeys: [],
         daemonConnected: false,
@@ -134,6 +142,10 @@ function createAppState() {
             await store.set("hosts", hostsToSave);
             await store.set("sessions", sessionsToSave);
             await store.set("terminalFontSize", state.terminalFontSize);
+            await store.set("terminalFontWeight", state.terminalFontWeight);
+            await store.set("markdownFontSize", state.markdownFontSize);
+            await store.set("markdownFontWeight", state.markdownFontWeight);
+            await store.set("recentSessionIds", state.recentSessionIds);
             await store.save();
         } catch (e) {
             console.error("Failed to save to store:", e);
@@ -147,6 +159,10 @@ function createAppState() {
             const savedHosts = await store.get<Host[]>("hosts");
             const savedSessions = await store.get<Session[]>("sessions");
             const savedFontSize = await store.get<number>("terminalFontSize");
+            const savedFontWeight = await store.get<string>("terminalFontWeight");
+            const savedMarkdownFontSize = await store.get<number>("markdownFontSize");
+            const savedMarkdownFontWeight = await store.get<string>("markdownFontWeight");
+            const savedRecentIds = await store.get<string[]>("recentSessionIds");
 
             if (savedHosts) {
                 state.hosts = savedHosts.map(h => ({ ...h, reachable: false, projects: [] }));
@@ -156,6 +172,18 @@ function createAppState() {
             }
             if (savedFontSize) {
                 state.terminalFontSize = savedFontSize;
+            }
+            if (savedFontWeight) {
+                state.terminalFontWeight = savedFontWeight;
+            }
+            if (savedMarkdownFontSize) {
+                state.markdownFontSize = savedMarkdownFontSize;
+            }
+            if (savedMarkdownFontWeight) {
+                state.markdownFontWeight = savedMarkdownFontWeight;
+            }
+            if (savedRecentIds) {
+                state.recentSessionIds = savedRecentIds;
             }
             
             for (const host of state.hosts) {
@@ -214,13 +242,33 @@ function createAppState() {
         get terminalFocusTrigger() { return state.terminalFocusTrigger; },
         get terminalResizeTrigger() { return state.terminalResizeTrigger; },
         get terminalFontSize() { return state.terminalFontSize; },
+        get terminalFontWeight() { return state.terminalFontWeight; },
+        get markdownFontSize() { return state.markdownFontSize; },
+        get markdownFontWeight() { return state.markdownFontWeight; },
         get loadedFiles() { return state.loadedFiles; },
         get openMarkdownFiles() { return state.openMarkdownFiles; },
+        get recentSessions() {
+            return state.recentSessionIds
+                .map(id => state.sessions.find(s => s.id === id))
+                .filter((s): s is Session => s !== undefined);
+        },
         get navigationTrigger() { return state.navigationTrigger; },
         get logs() { return state.logs; },
         get viewUpdateTrigger() { return state.viewUpdateTrigger; },
         get sshKeys() { return state.sshKeys; },
-        get currentProject() { return null; },
+        get currentProject() { return this.activeProject; },
+
+        get activeSession() {
+            if (!state.activeSessionId) return null;
+            return state.sessions.find(s => s.id === state.activeSessionId) || null;
+        },
+
+        get activeProject() {
+            const session = this.activeSession;
+            if (!session) return null;
+            const host = state.hosts.find(h => h.address === session.hostAddress);
+            return host?.projects.find(p => p.session_name === session.zellijSession) || null;
+        },
 
         scrollToPane(index: number) {
             state.navigationTrigger = index;
@@ -244,10 +292,29 @@ function createAppState() {
         },
 
         setTerminalFontSize(size: number) {
+            console.log(`appState: setting terminalFontSize to ${size}`);
             state.terminalFontSize = size;
             saveToStore();
-            // Trigger a resize to adapt to new font size
             this.triggerTerminalResize();
+        },
+
+        setTerminalFontWeight(weight: string) {
+            console.log(`appState: setting terminalFontWeight to ${weight}`);
+            state.terminalFontWeight = weight;
+            saveToStore();
+            this.triggerTerminalResize();
+        },
+
+        setMarkdownFontSize(size: number) {
+            console.log(`appState: setting markdownFontSize to ${size}`);
+            state.markdownFontSize = size;
+            saveToStore();
+        },
+
+        setMarkdownFontWeight(weight: string) {
+            console.log(`appState: setting markdownFontWeight to ${weight}`);
+            state.markdownFontWeight = weight;
+            saveToStore();
         },
 
         setFileLoaded(filename: string, loaded: boolean) {
@@ -386,6 +453,13 @@ function createAppState() {
                 
                 session.status = 'connected';
                 log(`Connected to session: ${session.label}.`);
+
+                // Update recent sessions
+                state.recentSessionIds = [
+                    sessionId,
+                    ...state.recentSessionIds.filter(id => id !== sessionId)
+                ].slice(0, 3);
+                saveToStore();
 
                 try {
                     const wsUrl = `ws://${session.hostAddress}:8083/ws`;

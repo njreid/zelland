@@ -4,7 +4,7 @@
     import { appState } from '$lib/stores/app.svelte';
     import { marked } from 'marked';
     import { createAnnotationManager } from '$lib/annotations.svelte';
-    import { markedAnnotationExtension, highlightAnnotations } from '$lib/marked-annotations';
+    import { markedAnnotationExtension, highlightAnnotations, getAnnotationOrder } from '$lib/marked-annotations';
     import AnnotationSidebar from './AnnotationSidebar.svelte';
     import AnnotationForm from './AnnotationForm.svelte';
     import { MessageSquareText } from 'lucide-svelte';
@@ -18,12 +18,29 @@
     let html = $derived(content ? marked.parse(content) : '');
     let paneEl: HTMLDivElement | undefined = $state();
     let isDesktop = $state(false);
+    let annotationOrder = $state<string[]>([]);
 
     const manager = createAnnotationManager();
 
-    // Sidebar state
+    // Derived sorted annotations based on document order
+    let orderedAnnotations = $derived.by(() => {
+        const anns = manager.annotations;
+        if (annotationOrder.length === 0) return anns;
+        
+        const sorted = [...anns].sort((a, b) => {
+            const idxA = annotationOrder.indexOf(a.id);
+            const idxB = annotationOrder.indexOf(b.id);
+            if (idxA === -1 && idxB === -1) return 0;
+            if (idxA === -1) return 1;
+            if (idxB === -1) return -1;
+            return idxA - idxB;
+        });
+        return sorted;
+    });
+
     let sidebarOpen = $state(false);
     let activeAnnotationId = $state<string | null>(null);
+    let isSelecting = false;
 
     // Selection state for annotation form
     let selectionInfo = $state<{ 
@@ -35,12 +52,9 @@
     } | null>(null);
 
     function getActiveSessionInfo() {
-        const activeSession = appState.sessions.find(s => s.id === appState.activeSessionId);
-        if (!activeSession) return null;
-
-        const host = appState.hosts.find(h => h.address === activeSession.hostAddress);
-        const project = host?.projects.find(p => p.session_name === activeSession.zellijSession);
-        if (!project?.root_path) return null;
+        const activeSession = appState.activeSession;
+        const project = appState.activeProject;
+        if (!activeSession || !project?.root_path) return null;
 
         const projectName = project.root_path.split('/').filter(Boolean).pop() ?? '';
         const filepath = `${projectName}/${filename}`;
@@ -49,8 +63,7 @@
     }
 
     function getAuthor(): string {
-        const session = appState.sessions.find(s => s.id === appState.activeSessionId);
-        return session?.username ?? 'anon';
+        return appState.activeSession?.username ?? 'anon';
     }
 
     async function loadContent() {
@@ -88,12 +101,20 @@
         }
     }
 
+    function handleMouseDown() {
+        isSelecting = true;
+    }
+
     // Handle text selection for creating annotations
     function handleMouseUp() {
+        isSelecting = false;
+        
+        // Wait a tiny bit for the selection to stabilize
         setTimeout(() => {
             const sel = window.getSelection();
             if (!sel || sel.isCollapsed || !sel.rangeCount || !paneEl) {
-                selectionInfo = null;
+                // If it's a simple click (isCollapsed), clear selection info
+                if (sel?.isCollapsed) selectionInfo = null;
                 return;
             }
 
@@ -128,7 +149,7 @@
             if (isDesktop && !sidebarOpen) {
                 sidebarOpen = true;
             }
-        }, 10);
+        }, 50);
     }
 
     async function handleCreate(body: string) {
@@ -197,7 +218,19 @@
         const link = target.closest('a') as HTMLAnchorElement | null;
         if (link && link.getAttribute('href')) {
             const href = link.getAttribute('href')!;
-            // Check if it's a relative markdown link
+            
+            // 1. Handle fragment links (TOC)
+            if (href.startsWith('#')) {
+                e.preventDefault();
+                const id = href.slice(1);
+                const targetEl = paneEl?.querySelector(`[id="${id}"]`);
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                return;
+            }
+
+            // 2. Check if it's a relative markdown link
             if (href.endsWith('.md') && !href.startsWith('http') && !href.startsWith('//')) {
                 e.preventDefault();
                 appState.openMarkdownFile(href);
@@ -224,7 +257,6 @@
     onMount(async () => {
         loadContent();
         connectAnnotations();
-        document.addEventListener('selectionchange', handleMouseUp);
         
         const osPlatform = await platform();
         isDesktop = osPlatform === 'linux' || osPlatform === 'macos' || osPlatform === 'windows';
@@ -232,7 +264,6 @@
 
     onDestroy(() => {
         manager.disconnect();
-        document.removeEventListener('selectionchange', handleMouseUp);
     });
 
     // Reload content when view update triggers fire
@@ -242,20 +273,29 @@
         }
     });
 
-    // Reconnect when active session changes
+    // Reconnect when active session changes or becomes connected
     $effect(() => {
-        const _sid = appState.activeSessionId;
-        loadContent();
-        connectAnnotations();
+        const session = appState.activeSession;
+        if (session?.status === 'connected') {
+            loadContent();
+            connectAnnotations();
+        }
     });
 
     // Highlight annotations after HTML renders
     $effect(() => {
         const _html = html;
         const _anns = manager.annotations;
+        const _size = appState.markdownFontSize;
+        const _weight = appState.markdownFontWeight;
+        console.log(`MarkdownPane: highlighting/styling updated (size=${_size}, weight=${_weight})`);
+        
         if (paneEl && _html && _anns.length > 0) {
             requestAnimationFrame(() => {
-                if (paneEl) highlightAnnotations(paneEl, _anns);
+                if (paneEl) {
+                    highlightAnnotations(paneEl, _anns);
+                    annotationOrder = getAnnotationOrder(paneEl);
+                }
             });
         }
     });
@@ -269,8 +309,10 @@
             class="markdown-pane container"
             id="pane-{filename}"
             bind:this={paneEl}
+            onmousedown={handleMouseDown}
             onmouseup={handleMouseUp}
             onclick={handlePaneClick}
+            style="font-size: {appState.markdownFontSize}px; font-weight: {appState.markdownFontWeight};"
         >
             {#if html}
                 {@html html}
@@ -297,7 +339,7 @@
 
     {#if sidebarOpen}
         <AnnotationSidebar
-            annotations={manager.annotations}
+            annotations={orderedAnnotations}
             {activeAnnotationId}
             pendingAnnotation={isDesktop ? selectionInfo : null}
             onScrollTo={handleScrollTo}
@@ -309,14 +351,14 @@
         />
     {/if}
 
-    {#if manager.annotations.length > 0 && !sidebarOpen}
+    {#if orderedAnnotations.length > 0 && !sidebarOpen}
         <button
             class="ann-toggle-btn"
             onclick={() => { sidebarOpen = true; }}
             aria-label="Show annotations"
         >
             <MessageSquareText size={14} />
-            <span>{manager.annotations.length}</span>
+            <span>{orderedAnnotations.length}</span>
         </button>
     {/if}
 </div>

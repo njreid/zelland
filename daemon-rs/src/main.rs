@@ -2,7 +2,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "zlnd", about = "zelland companion daemon")]
+#[command(name = "zlnd", about = "zlnd companion daemon")]
 struct Args {
     /// Path to KDL config file
     #[arg(long, short)]
@@ -20,16 +20,16 @@ async fn main() {
     let args = Args::parse();
 
     let mut config = match &args.config {
-        Some(path) => zelland_daemon::config::Config::load(path).unwrap_or_else(|e| {
+        Some(path) => zlnd_daemon::config::Config::load(path).unwrap_or_else(|e| {
             tracing::warn!("Failed to load config: {e}, using defaults");
-            zelland_daemon::config::Config::default()
+            zlnd_daemon::config::Config::default()
         }),
-        None => zelland_daemon::config::Config::default(),
+        None => zlnd_daemon::config::Config::default(),
     };
 
     config.merge(args.port, None);
 
-    if let Err(e) = zelland_daemon::server::run(config).await {
+    if let Err(e) = zlnd_daemon::server::run(config).await {
         tracing::error!("Server error: {}", e);
         std::process::exit(1);
     }
