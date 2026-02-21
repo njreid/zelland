@@ -5985,6 +5985,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "futures-util",
+ "glib",
  "gotatun",
  "gtk",
  "ipnetwork",

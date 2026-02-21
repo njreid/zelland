@@ -14,7 +14,7 @@ tasks:
   dev:
     desc: "Run the app in development mode (Desktop)"
     cmds:
-      - zellij action new-pane -- fish -c "task dev:daemon"
+      - pgrep zlnd > /dev/null || zellij action new-pane -- fish -c "task dev:daemon"
       - WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri dev
 
   "dev:daemon":
@@ -27,6 +27,22 @@ tasks:
     desc: "Run the app in development mode (Android)"
     cmds:
       - npm run tauri android dev
+
+  "build:zellij-plugin":
+    desc: "Build the Zelland Zellij plugin (wasm32-wasip1)"
+    dir: zellij-plugin
+    cmds:
+      - cargo build --target wasm32-wasip1 --release
+      - cp target/wasm32-wasip1/release/zelland_tabs.wasm ../build/zelland-tabs.wasm
+      - echo "Built build/zelland-tabs.wasm — copy to ~/.config/zellij/plugins/ on each remote host"
+
+  "deploy:zellij-plugin":
+    desc: "Deploy Zellij plugin to remote host (usage: task deploy:zellij-plugin ADDR=user@host)"
+    cmds:
+      - task: "build:zellij-plugin"
+      - ssh {{.ADDR}} "mkdir -p ~/.config/zellij/plugins"
+      - scp build/zelland-tabs.wasm {{.ADDR}}:~/.config/zellij/plugins/zelland-tabs.wasm
+      - echo "✓ Plugin deployed to {{.ADDR}}"
 
   "build:daemon":
     desc: "Build the daemon and CLI"

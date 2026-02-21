@@ -1,205 +1,70 @@
-# Design: Rust-side Terminal Emulation with termwiz
+# Design: Alacritty Terminal Backend Integration
 
-This document describes the architecture for moving terminal state management
-from the frontend (xterm.js) into the Rust backend, eliminating the
-JavaScript VT parser and replacing xterm.js's renderer with a lightweight
-Canvas/WebGL renderer driven directly by Rust.
+This document describes the architecture for offloading terminal emulation logic from the frontend (JavaScript/xterm.js) to the backend (Rust/alacritty_terminal).
 
 ## Goal
+Use the `alacritty_terminal` crate to maintain the terminal state (grid, scrollback, modes) in Rust, while using `xterm.js` as a high-performance rendering layer in the frontend.
 
-Use `termwiz` to own the terminal grid in Rust. The frontend becomes a pure
-renderer: it receives structured cell-update events and draws them to a
-`<canvas>` element. xterm.js is removed entirely.
+## Motivation & Performance Analysis
 
-## Prior Art: Rio Terminal
+### Linux Desktop
+- **CPU Efficiency:** `alacritty_terminal` is one of the fastest terminal emulators available. Offloading escape sequence parsing to Rust frees up the main thread in the browser/Tauri webview.
+- **Unified State:** Having the terminal grid available in Rust allows for advanced features like system-wide search, semantic selection, and integration with the Zelland daemon without round-trips to the frontend.
 
-[Rio Terminal](https://raphamorim.io/rio/) is the closest reference
-implementation. Rio uses `wgpu` + its own `sugarloaf` rendering library and
-has a working WASM build (`rio-wasm`) that runs the full terminal emulator in
-a browser via WebGPU. The data flow is identical to what we want:
-
-```
-PTY bytes → VT parser → grid state → renderer → frame
-```
-
-In our case the renderer is Canvas2D/WebGL inside the Tauri WebView rather
-than `sugarloaf`, which avoids creating a native wgpu surface that would live
-outside the WebView and break annotation overlays.
-
-## Why not a native wgpu surface
-
-Tauri renders into a WebView. A native wgpu surface would sit outside the
-WebView as a separate OS-level layer — you'd need to punch a transparent hole
-through the WebView to expose it. This breaks the annotation overlay system,
-the pane ribbon, and the sidebar, all of which composite freely over the
-terminal today. **WebGL inside the WebView via `<canvas>`** achieves the same
-GPU-accelerated rendering without sacrificing layout compositing.
-
-## Why `termwiz` over `alacritty_terminal`
-
-| | `alacritty_terminal` | `termwiz` |
-|---|---|---|
-| Design intent | Internal to Alacritty | Designed for embedding |
-| Semver stability | None (breaks each minor) | Stable public API |
-| Maintained by | Alacritty team | WezTerm (wez) |
-| Scrollback API | Manual | Built-in `ScrollbackBuffer` |
-| SIXEL / images | No | Yes |
-
-`termwiz` exposes `termwiz::escape::parser::Parser` (VT state machine),
-`termwiz::surface::Surface` (the grid), and `termwiz::surface::Change`
-(the diff type). These three are everything we need.
+### Android
+- **Memory Management (Critical):** `xterm.js` memory consumption grows significantly with scrollback history. On Android, memory is a constrained resource. By moving scrollback to Rust, we can set `xterm.js` scrollback to 0 and manage the history in Rust's heap (or even mmap it if needed), which is far more efficient than the V8/JSC heap.
+- **Battery Life:** Parsing complex terminal escapes in Rust is more energy-efficient than doing so in JavaScript.
+- **Responsiveness:** Heavy terminal output (e.g., `cat`ing a large log file) can freeze the JS thread. Rust can process this output at native speed and only send throttled "render" updates to the UI.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Rust (src-tauri)                                       │
-│                                                         │
-│  russh channel                                          │
-│       │ raw PTY bytes                                   │
-│       ▼                                                 │
-│  termwiz::escape::parser::Parser                        │
-│       │ parsed Actions → Changes                        │
-│       ▼                                                 │
-│  termwiz::surface::Surface  (grid + cursor)             │
-│  + VecDeque<Vec<Change>>  (scrollback)                  │
-│       │ dirty rows only                                 │
-│       ▼                                                 │
-│  Tauri event  "terminal-render"                         │
-│       │  { tab_id, rows: Vec<RowUpdate>, cursor }       │
-└───────┼─────────────────────────────────────────────────┘
-        │
-┌───────▼─────────────────────────────────────────────────┐
-│  Frontend (Terminal.svelte)                             │
-│                                                         │
-│  <canvas> element                                       │
-│       ▲                                                 │
-│  CanvasRenderer  (~300 lines TypeScript)                │
-│    - glyph cache (one OffscreenCanvas per unique glyph) │
-│    - row-dirty tracking, cursor, selection              │
-│    - WebGL path on desktop; Canvas2D fallback Android   │
-│                                                         │
-│  <div class="overlay"> (transparent, pointer-events)    │
-│    - annotation highlights (existing system, unchanged) │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Serialized row format
-
-Keeping the IPC payload small matters. Each cell encodes to ~8 bytes:
+### 1. Backend (Rust)
+The `SshManager` will be updated to own a `TerminalSession` for each tab.
 
 ```rust
-struct SerializedCell {
-    ch: char,       // 1–4 bytes UTF-8
-    fg: [u8; 3],    // RGB
-    bg: [u8; 3],    // RGB
-    attrs: u8,      // bold | italic | underline | blink | reverse (bitfield)
-}
-
-struct RenderEvent {
-    tab_id: String,
-    rows: HashMap<u16, Vec<SerializedCell>>,  // only dirty rows
-    cursor: Option<(u16, u16)>,               // (col, row)
+struct TerminalSession {
+    // Terminal state machine
+    term: alacritty_terminal::Term<EventProxy>,
+    // PTY/SSH handle
+    channel: russh::client::Channel<Msg>,
+    // Scrollback/History manager
+    history: HistoryBuffer,
 }
 ```
 
-Typical dirty repaint for a 220-column terminal: 3–5 rows × ~1800 bytes =
-~9 KB. Full repaint: ~88 KB. Both are well within Tauri's IPC budget.
+- **Input Path:** Raw bytes from `russh` -> `term.process_input(bytes)`.
+- **State:** `alacritty_terminal` maintains the `Grid`, `Cursor`, and `Colors`.
+- **Syncing:** When the grid is "dirty", the backend emits a specialized event to the frontend.
 
-### Canvas renderer (TypeScript sketch)
+### 2. Frontend (TypeScript)
+`Terminal.svelte` will continue to use `xterm.js`, but with its own emulation logic largely bypassed.
 
-```typescript
-class CanvasRenderer {
-    private cellW: number;
-    private cellH: number;
+- **Scrollback:** Set `scrollback: 0`.
+- **Rendering:** Instead of receiving a raw stream of SSH data, it receives "View Updates" from Rust.
+- **User Interaction:** Key presses are still captured by `xterm.js` and sent to Rust via `ssh_write`.
 
-    render(rows: Map<number, SerializedCell[]>, cursor: [number, number] | null) {
-        for (const [rowIdx, cells] of rows) {
-            this.renderRow(rowIdx, cells);
-        }
-        if (cursor) this.renderCursor(cursor);
-    }
+### 3. Sync Protocol
+To keep the frontend in sync without re-implementing a full renderer, we can use one of two strategies:
 
-    private renderRow(row: number, cells: SerializedCell[]) {
-        const y = row * this.cellH;
-        for (let col = 0; col < cells.length; col++) {
-            const { ch, fg, bg } = cells[col];
-            const x = col * this.cellW;
-            this.ctx.fillStyle = rgb(bg);
-            this.ctx.fillRect(x, y, this.cellW, this.cellH);
-            if (ch !== ' ') {
-                this.ctx.fillStyle = rgb(fg);
-                this.ctx.fillText(ch, x, y + this.cellH * 0.8);
-            }
-        }
-    }
-}
-```
+1.  **Virtual Viewport:** Rust sends the raw bytes that *only* represent the current visible window. When the user scrolls, Rust sends a "clear and redraw" sequence for the new window.
+2.  **Cell Diffing:** Rust sends a binary representation of the changed cells (coordinates, character, attributes). A custom `xterm.js` addon renders these directly to the buffer.
 
-A full implementation with bold/italic variants, underline, and ligature
-support via an OffscreenCanvas glyph atlas is ~300 lines. This is the same
-approach WezTerm uses for its WebGL renderer.
+**Preferred Strategy:** Strategy 1 is easier to implement initially as it leverages `xterm.js`'s existing robust escape sequence rendering.
 
 ## Implementation Steps
 
-### Phase 1 — Rust: termwiz parser and grid
-
-1. Add `termwiz = { version = "0.22", default-features = false, features = ["use_std"] }`
-   to `src-tauri/Cargo.toml`.
-2. In `ssh.rs`, introduce a `TermSession` per tab:
-   ```rust
-   struct TermSession {
-       parser: termwiz::escape::parser::Parser,
-       surface: termwiz::surface::Surface,
-       scrollback: VecDeque<Vec<termwiz::surface::Change>>,
-   }
-   ```
-3. In the SSH read loop, feed bytes into `parser.parse(bytes, |action| ...)`,
-   apply resulting `Change`s to `surface`, collect dirty row indices, and
-   emit a `terminal-render` Tauri event containing only the changed rows.
-4. Add a Tauri command `terminal_scroll(tab_id, delta: i32)` that replays
-   scrollback `Change`s to project a different viewport window, then
-   re-emits the full visible surface.
-
-### Phase 2 — Frontend: CanvasRenderer
-
-5. Replace `<div bind:this={terminalElement}>` with `<canvas>` in
-   `Terminal.svelte`.
-6. Implement `CanvasRenderer` in `src/lib/terminal/renderer.ts`. Measure cell
-   dimensions from a hidden `measureText` call on init.
-7. Listen to `terminal-render` events, pass rows/cursor to `renderer.render()`.
-8. Handle keyboard input via `canvas.addEventListener('keydown', ...)`,
-   encoding keys to byte sequences and sending to `appState.writeInput()`.
-9. Handle resize via `ResizeObserver` — compute `(cols, rows)` from
-   `canvas.width / cellW` and call `appState.resize()`.
-10. Remove `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-webgl`,
-    `@xterm/addon-canvas` from `package.json`.
-
-### Phase 3 — Scrollback and selection
-
-11. Scrollbar or scroll gesture in Svelte maps to `terminal_scroll`. Rust
-    projects the correct window and re-emits the viewport.
-12. Text selection: track mouse start/end cell coordinates, highlight on
-    canvas, copy via `navigator.clipboard.writeText()`.
-
-## Intermediate state (today)
-
-While the migration is in progress, xterm.js runs with:
-
-- `scrollback: 0` ✓ (already set — eliminates main Android memory pressure)
-- WebGL renderer with Canvas2D fallback ✓ (added — ~2× faster rendering)
-
-These address ~80% of the Android performance concern with no architecture
-changes.
+1.  **Add Dependencies:** Add `alacritty_terminal` to `src-tauri/Cargo.toml`.
+2.  **Refactor `ssh.rs`:** 
+    - Create a `Term` instance per connection.
+    - Implement `alacritty_terminal::event::EventListener` to catch terminal events (titles, bells, etc.).
+    - Update the `tokio::select!` loop to feed `channel.wait()` data into the `Term`.
+3.  **Expose Grid API:** Add a Tauri command to "read" a range of the terminal grid.
+4.  **Update `Terminal.svelte`:**
+    - Disable `xterm.js` scrollback.
+    - Handle a new `terminal-sync` event that contains the visible area.
+5.  **Scrollback Bridge:** Implement a scrollbar in Svelte that tells the Rust backend which part of the history to "project" into the `xterm.js` viewport.
 
 ## Future Enhancements
-
-- **Annotation integration:** The termwiz grid makes it trivial to locate
-  text spans server-side, removing the fragile `prefix/suffix` heuristic
-  used today.
-- **Search:** Regex search across full scrollback via the `regex` crate in
-  Rust; results arrive as `(row, col_start, col_end)` spans.
-- **Semantic selection:** Unicode word-break detection in Rust on double-click,
-  far more accurate than xterm.js's heuristics.
-- **SIXEL / image support:** termwiz supports SIXEL natively; the canvas
-  renderer composites image cells as `drawImage` calls.
+- **Annotation Integration:** Use the Rust-side grid to automatically find and highlight text matching active annotations, even if they move due to terminal output.
+- **Search:** Implement ultra-fast Regex search across the entire scrollback buffer in Rust.
+- **Multiplexing:** Easier implementation of "split panes" or "overlay" features by managing multiple `Term` instances in one SSH session.

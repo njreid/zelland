@@ -9,6 +9,8 @@ use tauri::{State, AppHandle, Manager};
 use webkit2gtk::{SettingsExt, WebInspectorExt, WebViewExt};
 #[cfg(target_os = "linux")]
 use gtk::prelude::*;
+#[cfg(target_os = "linux")]
+use glib;
 
 use crate::ssh::{SshConfig, SshManager};
 use crate::daemon::DaemonManager;
@@ -106,15 +108,23 @@ async fn delete_ssh_key(key_state: State<'_, ManagedKeyManager>, id: String) -> 
 
 #[cfg(target_os = "linux")]
 fn setup_linux_devtools(window: &tauri::WebviewWindow) {
-    window.with_webview(|webview| {
+    let _ = window.with_webview(|webview| {
         let webview = webview.inner();
-        if let Some(settings) = webview.settings() {
+        if let Some(settings) = WebViewExt::settings(&webview) {
             settings.set_enable_developer_extras(true);
         }
         if let Some(inspector) = webview.inspector() {
+            println!("Linux: Inspector found, setting up detached hooks...");
+            
+            inspector.connect_attach(|inspector| {
+                println!("Linux: Inspector 'attach' signal - detaching and inhibiting...");
+                inspector.detach();
+                true
+            });
+
             inspector.connect_open_window(|_| {
-                // Return Inhibit(false) to allow the default handler to create a new window
-                gtk::Inhibit(false)
+                println!("Linux: Inspector 'open-window' signal...");
+                false
             });
         }
     });
@@ -126,6 +136,9 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(debug_assertions)]
             if let Some(window) = _app.get_webview_window("main") {
+                #[cfg(target_os = "linux")]
+                setup_linux_devtools(&window);
+
                 window.open_devtools();
             }
 
