@@ -5,6 +5,11 @@ pub mod network;
 pub mod keystore;
 
 use tauri::{State, AppHandle, Manager};
+#[cfg(target_os = "linux")]
+use webkit2gtk::{SettingsExt, WebInspectorExt, WebViewExt};
+#[cfg(target_os = "linux")]
+use gtk::prelude::*;
+
 use crate::ssh::{SshConfig, SshManager};
 use crate::daemon::DaemonManager;
 use crate::keystore::{KeyManager, StandardKeyManager};
@@ -51,12 +56,11 @@ async fn daemon_run_zellij_action(state: State<'_, DaemonManager>, action: Strin
 
 #[tauri::command]
 async fn ssh_list_zellij_sessions(
-    app_handle: AppHandle, 
-    ssh_state: State<'_, SshManager>, 
+    ssh_state: State<'_, SshManager>,
     key_state: State<'_, ManagedKeyManager>,
-    config: SshConfig
+    config: SshConfig,
 ) -> Result<Vec<String>, String> {
-    let output = ssh_state.run_command(app_handle, config, "zellij list-sessions -n -q".to_string(), key_state.0.clone()).await?;
+    let output = ssh_state.run_command(config, "zellij list-sessions -n -q".to_string(), key_state.0.clone()).await?;
     let sessions = output.lines()
         .map(|line| line.trim().to_string())
         .filter(|line| !line.is_empty())
@@ -66,13 +70,12 @@ async fn ssh_list_zellij_sessions(
 
 #[tauri::command]
 async fn run_remote_command(
-    app_handle: AppHandle, 
-    ssh_state: State<'_, SshManager>, 
+    ssh_state: State<'_, SshManager>,
     key_state: State<'_, ManagedKeyManager>,
-    config: SshConfig, 
-    command: String
+    config: SshConfig,
+    command: String,
 ) -> Result<String, String> {
-    ssh_state.run_command(app_handle, config, command, key_state.0.clone()).await
+    ssh_state.run_command(config, command, key_state.0.clone()).await
 }
 
 #[tauri::command]
@@ -101,16 +104,29 @@ async fn delete_ssh_key(key_state: State<'_, ManagedKeyManager>, id: String) -> 
     key_state.0.delete_identity(id).await
 }
 
+#[cfg(target_os = "linux")]
+fn setup_linux_devtools(window: &tauri::WebviewWindow) {
+    window.with_webview(|webview| {
+        let webview = webview.inner();
+        if let Some(settings) = webview.settings() {
+            settings.set_enable_developer_extras(true);
+        }
+        if let Some(inspector) = webview.inspector() {
+            inspector.connect_open_window(|_| {
+                // Return Inhibit(false) to allow the default handler to create a new window
+                gtk::Inhibit(false)
+            });
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|_app| {
             #[cfg(debug_assertions)]
-            {
-                use tauri::Manager;
-                if let Some(window) = _app.get_webview_window("main") {
-                    window.open_devtools();
-                }
+            if let Some(window) = _app.get_webview_window("main") {
+                window.open_devtools();
             }
 
             #[cfg(target_os = "android")]

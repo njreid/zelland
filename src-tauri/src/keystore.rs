@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use tauri::Manager;
 use russh_keys::PublicKeyBase64;
 use zeroize::Zeroizing;
+#[cfg(target_os = "android")]
+use log::info;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct KeyIdentity {
@@ -198,8 +201,6 @@ pub struct BiometricResponse {
 static BIOMETRIC_PENDING: std::sync::LazyLock<
     std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<BiometricResponse>>>
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
-
-use std::collections::HashMap;
 
 /// Register a pending biometric request and return a receiver to await the result.
 pub fn register_biometric_request(request_id: String) -> tokio::sync::oneshot::Receiver<BiometricResponse> {

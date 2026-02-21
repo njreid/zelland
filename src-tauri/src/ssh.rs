@@ -8,6 +8,21 @@ use std::future::Future;
 use log::{info, error, debug};
 use crate::keystore::KeyManager;
 
+/// Establish an authenticated SSH session, handling both connection and auth.
+async fn open_session(
+    config: &SshConfig,
+    key_manager: Arc<dyn KeyManager>,
+) -> Result<client::Handle<Client>, String> {
+    let addr = format!("{}:{}", config.host, config.port);
+    let mut session = client::connect(Arc::new(client::Config::default()), addr, Client {})
+        .await
+        .map_err(|e| format!("Connection failed: {}", e))?;
+    match authenticate(&mut session, config, key_manager).await? {
+        AuthResult::Success => Ok(session),
+        _ => Err("Authentication failed".to_string()),
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum AuthMethod {
     Password,
@@ -105,189 +120,149 @@ impl SshManager {
     }
 
     pub async fn run_command(
-        &self, 
-        _app_handle: tauri::AppHandle, 
-        config: SshConfig, 
+        &self,
+        config: SshConfig,
         cmd: String,
-        key_manager: Arc<dyn KeyManager>
+        key_manager: Arc<dyn KeyManager>,
     ) -> Result<String, String> {
         debug!("Running SSH command: {} on {}:{}", cmd, config.host, config.port);
-        let client_config = Arc::new(client::Config::default());
-        let sh = Client {};
+        let session = open_session(&config, key_manager).await?;
 
-        let addr = format!("{}:{}", config.host, config.port);
-        let mut session = client::connect(client_config, addr, sh).await
+        let mut channel = session.channel_open_session().await
             .map_err(|e| {
-                error!("SSH connection failed: {}", e);
-                format!("Connection failed: {}", e)
+                error!("Failed to open SSH channel: {}", e);
+                format!("Failed to open channel: {}", e)
             })?;
 
-        let auth_res = authenticate(&mut session, &config, key_manager).await?;
+        channel.exec(true, cmd).await
+            .map_err(|e| {
+                error!("Failed to execute SSH command: {}", e);
+                format!("Failed to execute: {}", e)
+            })?;
 
-        if let AuthResult::Success = auth_res {
-            debug!("SSH authentication successful for command execution");
-            let mut channel = session.channel_open_session().await
-                .map_err(|e| {
-                    error!("Failed to open SSH channel: {}", e);
-                    format!("Failed to open channel: {}", e)
-                })?;
-
-            channel.exec(true, cmd).await
-                .map_err(|e| {
-                    error!("Failed to execute SSH command: {}", e);
-                    format!("Failed to execute: {}", e)
-                })?;
-
-            let mut output = Vec::new();
-            while let Some(msg) = channel.wait().await {
-                match msg {
-                    russh::ChannelMsg::Data { ref data } => {
-                        output.extend_from_slice(data);
-                    }
-                    russh::ChannelMsg::ExitStatus { .. } | russh::ChannelMsg::Eof => break,
-                    _ => {}
-                }
+        let mut output = Vec::new();
+        while let Some(msg) = channel.wait().await {
+            match msg {
+                russh::ChannelMsg::Data { ref data } => output.extend_from_slice(data),
+                russh::ChannelMsg::ExitStatus { .. } | russh::ChannelMsg::Eof => break,
+                _ => {}
             }
-            debug!("SSH command execution completed");
-            Ok(String::from_utf8_lossy(&output).to_string())
-        } else {
-            error!("SSH authentication failed for command execution");
-            Err("Authentication failed".to_string())
         }
+        debug!("SSH command execution completed");
+        Ok(String::from_utf8_lossy(&output).to_string())
     }
 
     pub async fn connect(
-        &self, 
-        tab_id: String, 
-        config: SshConfig, 
+        &self,
+        tab_id: String,
+        config: SshConfig,
         app_handle: tauri::AppHandle,
-        key_manager: Arc<dyn KeyManager>
+        key_manager: Arc<dyn KeyManager>,
     ) -> Result<(), String> {
         info!("SSH connect requested for tab: {}, host: {}", tab_id, config.host);
-        let client_config = Arc::new(client::Config::default());
-        let sh = Client {};
-
-        let addr = format!("{}:{}", config.host, config.port);
-        let mut session = client::connect(client_config, addr, sh).await
+        let session = open_session(&config, key_manager).await
             .map_err(|e| {
-                error!("SSH connection failed for tab {}: {}", tab_id, e);
-                format!("Connection failed: {}", e)
+                error!("SSH connect failed for tab {}: {}", tab_id, e);
+                e
             })?;
 
-        let auth_res = authenticate(&mut session, &config, key_manager).await?;
+        info!("SSH authentication successful for tab: {}", tab_id);
+        let mut channel = session.channel_open_session().await
+            .map_err(|e| {
+                error!("Failed to open SSH channel for tab {}: {}", tab_id, e);
+                format!("Failed to open channel: {}", e)
+            })?;
 
-        match auth_res {
-            AuthResult::Success => {
-                info!("SSH authentication successful for tab: {}", tab_id);
-                let mut channel = session.channel_open_session().await
-                    .map_err(|e| {
-                        error!("Failed to open SSH channel for tab {}: {}", tab_id, e);
-                        format!("Failed to open channel: {}", e)
-                    })?;
+        channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await
+            .map_err(|e| {
+                error!("Failed to request PTY for tab {}: {}", tab_id, e);
+                format!("Failed to request PTY: {}", e)
+            })?;
 
-                channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await
-                    .map_err(|e| {
-                        error!("Failed to request PTY for tab {}: {}", tab_id, e);
-                        format!("Failed to request PTY: {}", e)
-                    })?;
+        let robust_cmd = format!("zellij attach --create {} || $SHELL", config.session_name);
+        debug!("Executing SSH shell command: {}", robust_cmd);
 
-                let robust_cmd = format!("zellij attach --create {} || $SHELL", config.session_name);
-                debug!("Executing SSH shell command: {}", robust_cmd);
+        channel.exec(true, robust_cmd).await
+            .map_err(|e| {
+                error!("Failed to execute shell command for tab {}: {}", tab_id, e);
+                format!("Failed to execute command: {}", e)
+            })?;
 
-                channel.exec(true, robust_cmd).await
-                    .map_err(|e| {
-                        error!("Failed to execute shell command for tab {}: {}", tab_id, e);
-                        format!("Failed to execute command: {}", e)
-                    })?;
+        let (tx, mut rx) = mpsc::channel::<SessionMsg>(100);
+        let tab_id_spawn = tab_id.clone();
+        let app_handle_clone = app_handle.clone();
 
-                let (tx, mut rx) = mpsc::channel::<SessionMsg>(100);
-                let tab_id_spawn = tab_id.clone();
-                let app_handle_clone = app_handle.clone();
-
-                tokio::spawn(async move {
-                    use tauri::Emitter;
-                    info!("SSH session loop started for tab {}", tab_id_spawn);
-                    loop {
-                        tokio::select! {
-                            Some(msg) = rx.recv() => {
-                                match msg {
-                                    SessionMsg::Data(data) => {
-                                        if let Err(e) = channel.data(&data[..]).await {
-                                            error!("Failed to write to SSH channel for tab {}: {}", tab_id_spawn, e);
-                                            break;
-                                        }
-                                    }
-                                    SessionMsg::Resize { rows, cols } => {
-                                        if let Err(e) = channel.window_change(cols, rows, 0, 0).await {
-                                            error!("Failed to resize SSH window for tab {}: {}", tab_id_spawn, e);
-                                        }
-                                    }
+        tokio::spawn(async move {
+            use tauri::Emitter;
+            info!("SSH session loop started for tab {}", tab_id_spawn);
+            loop {
+                tokio::select! {
+                    Some(msg) = rx.recv() => {
+                        match msg {
+                            SessionMsg::Data(data) => {
+                                if let Err(e) = channel.data(&data[..]).await {
+                                    error!("Failed to write to SSH channel for tab {}: {}", tab_id_spawn, e);
+                                    break;
                                 }
                             }
-                            Some(msg) = channel.wait() => {
-                                match msg {
-                                    russh::ChannelMsg::Data { ref data } => {
-                                        let _ = app_handle_clone.emit("ssh-output", serde_json::json!({
-                                            "tabId": tab_id_spawn,
-                                            "data": String::from_utf8_lossy(data)
-                                        }));
-                                    }
-                                    russh::ChannelMsg::ExitStatus { exit_status } => {
-                                        info!("SSH channel exited with status {} for tab {}", exit_status, tab_id_spawn);
-                                        break;
-                                    }
-                                    russh::ChannelMsg::Eof => {
-                                        info!("SSH channel EOF for tab {}", tab_id_spawn);
-                                        break;
-                                    }
-                                    _ => {}
+                            SessionMsg::Resize { rows, cols } => {
+                                if let Err(e) = channel.window_change(cols, rows, 0, 0).await {
+                                    error!("Failed to resize SSH window for tab {}: {}", tab_id_spawn, e);
                                 }
-                            }
-                            else => {
-                                break;
                             }
                         }
                     }
-                    let _ = app_handle_clone.emit("ssh-closed", tab_id_spawn);
-                });
-
-                self.active_sessions.lock().await.insert(tab_id.clone(), tx);
-                info!("SSH connection established for tab: {}", tab_id);
-                Ok(())
+                    Some(msg) = channel.wait() => {
+                        match msg {
+                            russh::ChannelMsg::Data { ref data } => {
+                                let _ = app_handle_clone.emit("ssh-output", serde_json::json!({
+                                    "tabId": tab_id_spawn,
+                                    "data": String::from_utf8_lossy(data)
+                                }));
+                            }
+                            russh::ChannelMsg::ExitStatus { exit_status } => {
+                                info!("SSH channel exited with status {} for tab {}", exit_status, tab_id_spawn);
+                                break;
+                            }
+                            russh::ChannelMsg::Eof => {
+                                info!("SSH channel EOF for tab {}", tab_id_spawn);
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    else => break,
+                }
             }
-            _ => {
-                error!("SSH authentication failed for tab: {}", tab_id);
-                Err("Authentication failed".to_string())
-            },
-        }
+            let _ = app_handle_clone.emit("ssh-closed", tab_id_spawn);
+        });
+
+        self.active_sessions.lock().await.insert(tab_id.clone(), tx);
+        info!("SSH connection established for tab: {}", tab_id);
+        Ok(())
+    }
+
+    /// Look up a session's sender, dropping the lock before the async send.
+    async fn send_to_session(&self, tab_id: &str, msg: SessionMsg) -> Result<(), String> {
+        let tx = {
+            let active = self.active_sessions.lock().await;
+            active.get(tab_id)
+                .cloned()
+                .ok_or_else(|| {
+                    error!("No active SSH session for tab: {}", tab_id);
+                    "No active session".to_string()
+                })?
+        };
+        tx.send(msg).await
+            .map_err(|e| format!("Failed to send to channel: {}", e))
     }
 
     pub async fn write_input(&self, tab_id: String, data: Vec<u8>) -> Result<(), String> {
-        let active = self.active_sessions.lock().await;
-        if let Some(tx) = active.get(&tab_id) {
-            tx.send(SessionMsg::Data(data)).await.map_err(|e| {
-                error!("Failed to send data to SSH channel for tab {}: {}", tab_id, e);
-                "Failed to send to channel".to_string()
-            })?;
-            Ok(())
-        } else {
-            error!("No active SSH session for tab: {}", tab_id);
-            Err("No active session".to_string())
-        }
+        self.send_to_session(&tab_id, SessionMsg::Data(data)).await
     }
 
     pub async fn resize(&self, tab_id: String, rows: u32, cols: u32) -> Result<(), String> {
-        let active = self.active_sessions.lock().await;
-        if let Some(tx) = active.get(&tab_id) {
-            tx.send(SessionMsg::Resize { rows, cols }).await.map_err(|e| {
-                error!("Failed to send resize to SSH channel for tab {}: {}", tab_id, e);
-                "Failed to send resize".to_string()
-            })?;
-            Ok(())
-        } else {
-            error!("No active SSH session for tab: {}", tab_id);
-            Err("No active session".to_string())
-        }
+        self.send_to_session(&tab_id, SessionMsg::Resize { rows, cols }).await
     }
 
     pub async fn disconnect(&self, tab_id: String) {

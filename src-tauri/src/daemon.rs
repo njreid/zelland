@@ -22,8 +22,13 @@ pub struct Project {
     pub root_path: String,
 }
 
+type WsSink = futures_util::stream::SplitSink<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    Message,
+>;
+
 pub struct DaemonManager {
-    pub ws_write: Arc<Mutex<Option<futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>>>>,
+    pub ws_write: Arc<Mutex<Option<WsSink>>>,
     pub http_client: reqwest::Client,
 }
 
@@ -98,8 +103,7 @@ impl DaemonManager {
             })),
         };
 
-        let mut buf = Vec::new();
-        envelope.encode(&mut buf).map_err(|e| e.to_string())?;
+        let buf = envelope.encode_to_vec();
 
         let mut ws_write = self.ws_write.lock().await;
         if let Some(write) = ws_write.as_mut() {
