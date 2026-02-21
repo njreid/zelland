@@ -22,6 +22,12 @@ export interface Host {
     projects: Project[];
 }
 
+export interface ZellijTab {
+    index: number;
+    name: string;
+    active: boolean;
+}
+
 export interface Session {
     id: string;
     label: string;
@@ -57,6 +63,8 @@ function createAppState() {
     let logs = $state<{ message: string, type: 'info' | 'error' }[]>([]);
     let sshKeys = $state<any[]>([]);
     let daemonConnected = $state(false);
+    let zellijTabs = $state<ZellijTab[]>([]);
+    let tabPollInterval: ReturnType<typeof setInterval> | null = null;
 
     // --- Derived ---
     const activeSession = $derived(
@@ -80,6 +88,59 @@ function createAppState() {
     function log(message: string, type: 'info' | 'error' = 'info') {
         logs.push({ message, type });
         if (logs.length > 50) logs.shift();
+    }
+
+    function buildSshConfig(session: Session) {
+        const authMethod = session.key_id ? "Key" : session.private_key_path ? "PrivateKey" : "Password";
+        return {
+            host: session.hostAddress,
+            port: session.port,
+            username: session.username,
+            auth_method: authMethod,
+            password: session.password || null,
+            private_key_path: session.private_key_path || null,
+            private_key_passphrase: null,
+            key_id: session.key_id || null,
+            session_name: session.zellijSession
+        };
+    }
+
+    async function fetchZellijTabs() {
+        const session = activeSession;
+        if (!session || session.status !== 'connected') return;
+
+        const command = [
+            `zellij -s ${session.zellijSession}`,
+            `pipe --plugin file:~/.config/zellij/plugins/zelland-tabs.wasm`,
+            `--name list-tabs 2>/dev/null`
+        ].join(' ');
+
+        try {
+            const result = await invoke<string>("run_remote_command", {
+                config: buildSshConfig(session),
+                command
+            });
+            const trimmed = result.trim();
+            if (trimmed.startsWith('[')) {
+                zellijTabs = JSON.parse(trimmed);
+            }
+        } catch {
+            // Plugin not yet installed or session not ready — silent fail
+        }
+    }
+
+    function startTabPolling() {
+        stopTabPolling();
+        fetchZellijTabs();
+        tabPollInterval = setInterval(fetchZellijTabs, 2000);
+    }
+
+    function stopTabPolling() {
+        if (tabPollInterval !== null) {
+            clearInterval(tabPollInterval);
+            tabPollInterval = null;
+        }
+        zellijTabs = [];
     }
 
     async function saveToStore() {
@@ -211,6 +272,7 @@ function createAppState() {
         get sshKeys() { return sshKeys; },
         get viewUpdateTrigger() { return viewUpdateTrigger; },
         get daemonConnected() { return daemonConnected; },
+        get zellijTabs() { return zellijTabs; },
 
         // Methods
         scrollToPane(index: number) { navigationTrigger = index; },
@@ -298,6 +360,7 @@ function createAppState() {
         },
 
         async removeSession(sessionId: string) {
+            if (activeSessionId === sessionId) stopTabPolling();
             sessions = sessions.filter(s => s.id !== sessionId);
             if (activeSessionId === sessionId) activeSessionId = null;
             await saveToStore();
@@ -307,6 +370,7 @@ function createAppState() {
             const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
 
+            stopTabPolling(); // clear any previous session's polling
             session.status = 'connecting';
             activeSessionId = sessionId;
             log(`Connecting to session: ${session.label}...`);
@@ -330,6 +394,7 @@ function createAppState() {
                 
                 session.status = 'connected';
                 log(`Connected to session: ${session.label}.`);
+                startTabPolling();
 
                 recentSessionIds = [sessionId, ...recentSessionIds.filter(id => id !== sessionId)].slice(0, 3);
                 saveToStore();
@@ -398,23 +463,9 @@ function createAppState() {
                 }
             }
 
-            const authMethod = session.key_id ? "Key" : session.private_key_path ? "PrivateKey" : "Password";
             const command = `zellij -s ${session.zellijSession} action ${action}`;
             try {
-                await invoke("run_remote_command", { 
-                    config: {
-                        host: session.hostAddress,
-                        port: session.port,
-                        username: session.username,
-                        auth_method: authMethod,
-                        password: session.password || null,
-                        private_key_path: session.private_key_path || null,
-                        private_key_passphrase: null,
-                        key_id: session.key_id || null,
-                        session_name: session.zellijSession
-                    },
-                    command 
-                });
+                await invoke("run_remote_command", { config: buildSshConfig(session), command });
             } catch (e) {
                 log(`Failed to run zellij action: ${e}`, 'error');
             }

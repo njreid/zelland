@@ -47,16 +47,23 @@
 
     <div class="center-group" data-tauri-drag-region>
         <div role="group" class="tab-group">
-            <!-- Zellij Tabs -->
-            <button class="outline contrast topbar-btn wide-unit" onclick={() => sendZellijTab(1)}>1</button>
-            <button class="outline contrast topbar-btn wide-unit" onclick={() => sendZellijTab(2)}>2</button>
-            <button class="outline contrast topbar-btn wide-unit" onclick={() => sendZellijTab(3)}>3</button>
-            
+            <!-- Zellij Tabs (live from zelland-tabs plugin) -->
+            {#each appState.zellijTabs as tab}
+                <button
+                    class="outline contrast topbar-btn zellij-tab-btn"
+                    class:tab-active={tab.active}
+                    onclick={() => sendZellijTab(tab.index + 1)}
+                    title="Tab {tab.index + 1}: {tab.name}"
+                >
+                    {tab.name || tab.index + 1}
+                </button>
+            {/each}
+
             <!-- Markdown Nav Buttons -->
             {#each appState.openMarkdownFiles as file, i}
                 {#if appState.loadedFiles[file]}
-                    <button 
-                        class="outline contrast topbar-btn file-nav-btn" 
+                    <button
+                        class="outline contrast topbar-btn file-nav-btn"
                         onclick={() => onScrollToPane(i + 1)}
                         title="View {file}"
                     >
@@ -136,6 +143,25 @@
         margin-bottom: 0 !important;
         line-height: 1;
         border-width: 1px;
+    }
+
+    .zellij-tab-btn {
+        height: 2.2rem;
+        padding: 0 0.6rem !important;
+        max-width: 8rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: block;
+        font-size: 0.8rem;
+        margin-bottom: 0 !important;
+        border-width: 1px;
+    }
+
+    .zellij-tab-btn.tab-active {
+        background-color: var(--pico-primary) !important;
+        border-color: var(--pico-primary) !important;
+        color: #1a1b26 !important;
     }
 
     .file-nav-btn {
