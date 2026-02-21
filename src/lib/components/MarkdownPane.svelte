@@ -38,6 +38,9 @@
         return sorted;
     });
 
+    let tocItems = $state<{ id: string; text: string; level: number }[]>([]);
+    let activeTocId = $state<string | null>(null);
+
     let sidebarOpen = $state(false);
     let activeAnnotationId = $state<string | null>(null);
     let isSelecting = false;
@@ -254,6 +257,19 @@
         window.getSelection()?.removeAllRanges();
     }
 
+    function updateActiveToc() {
+        if (!paneEl || tocItems.length === 0) return;
+        const scrollTop = paneEl.scrollTop;
+        let best: string | null = tocItems[0]?.id ?? null;
+        for (const item of tocItems) {
+            const el = paneEl.querySelector(`#${CSS.escape(item.id)}`);
+            if (el && (el as HTMLElement).offsetTop <= scrollTop + 80) {
+                best = item.id;
+            }
+        }
+        activeTocId = best;
+    }
+
     onMount(async () => {
         loadContent();
         connectAnnotations();
@@ -282,21 +298,36 @@
         }
     });
 
-    // Highlight annotations after HTML renders
+    // Highlight annotations and extract TOC after HTML renders
     $effect(() => {
         const _html = html;
         const _anns = manager.annotations;
         const _size = appState.markdownFontSize;
         const _weight = appState.markdownFontWeight;
         console.log(`MarkdownPane: highlighting/styling updated (size=${_size}, weight=${_weight})`);
-        
-        if (paneEl && _html && _anns.length > 0) {
+
+        if (paneEl && _html) {
             requestAnimationFrame(() => {
-                if (paneEl) {
+                if (!paneEl) return;
+                if (_anns.length > 0) {
                     highlightAnnotations(paneEl, _anns);
                     annotationOrder = getAnnotationOrder(paneEl);
                 }
+                const headings = Array.from(
+                    paneEl.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]')
+                );
+                tocItems = headings
+                    .map(h => ({
+                        id: h.id,
+                        text: h.textContent?.trim() ?? '',
+                        level: parseInt(h.tagName[1], 10)
+                    }))
+                    .filter(h => h.text);
+                updateActiveToc();
             });
+        } else if (!_html) {
+            tocItems = [];
+            activeTocId = null;
         }
     });
 </script>
@@ -312,6 +343,7 @@
             onmousedown={handleMouseDown}
             onmouseup={handleMouseUp}
             onclick={handlePaneClick}
+            onscroll={updateActiveToc}
             style="font-size: {appState.markdownFontSize}px; font-weight: {appState.markdownFontWeight};"
         >
             {#if html}
@@ -336,6 +368,30 @@
             />
         {/if}
     </div>
+
+    {#if tocItems.length > 1}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <nav class="toc-panel" aria-label="Table of contents">
+            <p class="toc-title">Contents</p>
+            {#each tocItems as item}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <a
+                    class="toc-item"
+                    class:toc-active={activeTocId === item.id}
+                    style="padding-left: calc(0.4rem + {item.level - 1} * 0.65rem)"
+                    href="#{item.id}"
+                    onclick={(e) => {
+                        e.preventDefault();
+                        const el = paneEl?.querySelector(`#${CSS.escape(item.id)}`);
+                        if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            activeTocId = item.id;
+                        }
+                    }}
+                >{item.text}</a>
+            {/each}
+        </nav>
+    {/if}
 
     {#if sidebarOpen}
         <AnnotationSidebar
@@ -382,8 +438,14 @@
     .markdown-pane {
         flex: 1;
         overflow-y: auto;
-        padding: 1rem;
+        padding: 1.5rem 2rem;
         min-height: 0;
+        /* Center content at a comfortable reading width */
+        max-width: 760px;
+        width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+        box-sizing: border-box;
     }
 
     .mdpane-empty {
@@ -437,5 +499,64 @@
     .ann-toggle-btn:hover {
         opacity: 1;
         background: var(--bg-darker);
+    }
+
+    /* TOC floating navigator — positioned just right of the centered content.
+       The content max-width is 760px, so its right edge sits at calc(50% + 380px).
+       We start the TOC 10px further right, giving calc(50% + 390px).
+       At viewports < 1180px the TOC overflows the pane's clipping boundary and
+       disappears naturally; the media query makes it display:none before that. */
+    .toc-panel {
+        position: absolute;
+        left: calc(50% + 390px);
+        top: 0;
+        width: 200px;
+        max-height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 1.25rem 0.5rem 1.25rem 0.75rem;
+        display: none;
+        scrollbar-width: thin;
+        scrollbar-color: var(--pico-border-color) transparent;
+    }
+
+    @media (min-width: 1180px) {
+        .toc-panel {
+            display: block;
+        }
+    }
+
+    .toc-title {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--fg-dim);
+        margin: 0 0 0.5rem 0;
+        font-weight: 600;
+    }
+
+    .toc-item {
+        display: block;
+        font-size: 0.76rem;
+        line-height: 1.5;
+        color: var(--fg-dim);
+        text-decoration: none;
+        padding-top: 0.15rem;
+        padding-bottom: 0.15rem;
+        padding-right: 0.5rem;
+        border-left: 2px solid transparent;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: color 0.15s, border-color 0.15s;
+    }
+
+    .toc-item:hover {
+        color: var(--pico-color);
+    }
+
+    .toc-item.toc-active {
+        color: var(--accent);
+        border-left-color: var(--accent);
     }
 </style>

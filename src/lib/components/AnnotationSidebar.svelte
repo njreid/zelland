@@ -171,14 +171,17 @@
 
 <style>
     .ann-sidebar {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
         width: 280px;
-        min-width: 280px;
-        height: 100%;
         overflow-y: auto;
         background: var(--bg-darker);
         border-left: 1px solid var(--pico-border-color);
         display: flex;
         flex-direction: column;
+        z-index: 15;
     }
 
     .ann-sidebar-header {
@@ -313,12 +316,6 @@
     @media (max-width: 500px) {
         .ann-sidebar {
             width: 100%;
-            min-width: 100%;
-            position: absolute;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            z-index: 15;
         }
     }
 </style>
