@@ -3,6 +3,9 @@
     import { invoke } from '@tauri-apps/api/core';
     import { appState } from '$lib/stores/app.svelte';
     import { marked } from 'marked';
+    import hljs from 'highlight.js';
+    import mermaid from 'mermaid';
+    import 'highlight.js/styles/tokyo-night-dark.css';
     import { createAnnotationManager } from '$lib/annotations.svelte';
     import { markedAnnotationExtension, highlightAnnotations, getAnnotationOrder } from '$lib/marked-annotations';
     import AnnotationSidebar from './AnnotationSidebar.svelte';
@@ -10,8 +13,21 @@
     import { MessageSquareText } from 'lucide-svelte';
     import { platform } from '@tauri-apps/plugin-os';
 
-    // Register the [|ID|] annotation anchor extension once
+    // Register extensions once
     marked.use(markedAnnotationExtension);
+    marked.use({
+        renderer: {
+            code(token) {
+                const { lang, text } = token;
+                if (lang === 'mermaid') {
+                    return `<pre class="mermaid">${text}</pre>`;
+                }
+                const language = (lang && hljs.getLanguage(lang)) ? lang : 'plaintext';
+                const highlighted = hljs.highlight(text, { language }).value;
+                return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`;
+            }
+        }
+    });
 
     let { filename } = $props<{ filename: string }>();
     let content = $state('');
@@ -271,6 +287,11 @@
     }
 
     onMount(async () => {
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'dark',
+            securityLevel: 'loose',
+        });
         loadContent();
         connectAnnotations();
         
@@ -298,6 +319,8 @@
         }
     });
 
+    let lastHtml = '';
+
     // Highlight annotations and extract TOC after HTML renders
     $effect(() => {
         const _html = html;
@@ -307,27 +330,48 @@
         console.log(`MarkdownPane: highlighting/styling updated (size=${_size}, weight=${_weight})`);
 
         if (paneEl && _html) {
-            requestAnimationFrame(() => {
+            requestAnimationFrame(async () => {
                 if (!paneEl) return;
+                
+                // Highlight annotations (needs to run even if html didn't change, e.g. if annotations changed)
                 if (_anns.length > 0) {
                     highlightAnnotations(paneEl, _anns);
                     annotationOrder = getAnnotationOrder(paneEl);
                 }
-                const headings = Array.from(
-                    paneEl.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]')
-                );
-                tocItems = headings
-                    .map(h => ({
-                        id: h.id,
-                        text: h.textContent?.trim() ?? '',
-                        level: parseInt(h.tagName[1], 10)
-                    }))
-                    .filter(h => h.text);
-                updateActiveToc();
+
+                // Only run things that depend strictly on HTML content if it changed
+                if (_html !== lastHtml) {
+                    lastHtml = _html;
+
+                    const headings = Array.from(
+                        paneEl.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]')
+                    );
+                    tocItems = headings
+                        .map(h => ({
+                            id: h.id,
+                            text: h.textContent?.trim() ?? '',
+                            level: parseInt(h.tagName[1], 10)
+                        }))
+                        .filter(h => h.text);
+                    updateActiveToc();
+
+                    // Run Mermaid diagrams
+                    try {
+                        const mermaidNodes = paneEl.querySelectorAll('.mermaid');
+                        if (mermaidNodes.length > 0) {
+                            await mermaid.run({
+                                nodes: Array.from(mermaidNodes)
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Mermaid error:', e);
+                    }
+                }
             });
         } else if (!_html) {
             tocItems = [];
             activeTocId = null;
+            lastHtml = '';
         }
     });
 </script>
@@ -344,7 +388,7 @@
             onmouseup={handleMouseUp}
             onclick={handlePaneClick}
             onscroll={updateActiveToc}
-            style="font-size: {appState.markdownFontSize}px; font-weight: {appState.markdownFontWeight};"
+            style="font-size: {appState.markdownFontSize}px; font-weight: {appState.markdownFontWeight}; --code-font-size: {appState.codeFontSize}px; --code-font-weight: {appState.codeFontWeight};"
         >
             {#if html}
                 {@html html}
@@ -446,6 +490,45 @@
         margin-left: auto;
         margin-right: auto;
         box-sizing: border-box;
+    }
+
+    .markdown-pane :global(pre) {
+        background-color: #1a1b26;
+        border: 1px solid var(--pico-border-color);
+        border-radius: 8px;
+        margin: 1.25rem 0;
+        overflow: hidden;
+    }
+
+    .markdown-pane :global(pre code) {
+        padding: 1rem !important;
+        display: block;
+        font-family: 'InconsolataGoNerdFontMono', monospace;
+        font-size: var(--code-font-size, 13px);
+        font-weight: var(--code-font-weight, 400);
+        line-height: 1.5;
+    }
+
+    .markdown-pane :global(p code),
+    .markdown-pane :global(li code) {
+        background-color: var(--bg-input);
+        padding: 0.15rem 0.3rem;
+        border-radius: 4px;
+        font-family: 'InconsolataGoNerdFontMono', monospace;
+        font-size: var(--code-font-size, 13px);
+        font-weight: var(--code-font-weight, 400);
+    }
+
+    .markdown-pane :global(.mermaid) {
+        background-color: transparent;
+        margin: 1.5rem 0;
+        display: flex;
+        justify-content: center;
+    }
+
+    .markdown-pane :global(.mermaid svg) {
+        max-width: 100%;
+        height: auto;
     }
 
     .mdpane-empty {
