@@ -2,6 +2,8 @@
     import { onMount, onDestroy } from 'svelte';
     import { Terminal } from '@xterm/xterm';
     import { FitAddon } from '@xterm/addon-fit';
+    import { WebglAddon } from '@xterm/addon-webgl';
+    import { CanvasAddon } from '@xterm/addon-canvas';
     import '@xterm/xterm/css/xterm.css';
     import { appState } from '$lib/stores/app.svelte';
     import { listen } from '@tauri-apps/api/event';
@@ -31,6 +33,19 @@
         fitAddon = new FitAddon();
         term.loadAddon(fitAddon);
         term.open(terminalElement);
+
+        // Prefer WebGL renderer; fall back to Canvas if WebGL context is unavailable
+        // (Canvas is still ~2x faster than the default DOM renderer)
+        try {
+            const webgl = new WebglAddon();
+            webgl.onContextLoss(() => {
+                webgl.dispose();
+                term.loadAddon(new CanvasAddon());
+            });
+            term.loadAddon(webgl);
+        } catch {
+            term.loadAddon(new CanvasAddon());
+        }
         
         function doFitAndResize() {
             if (terminalElement.clientWidth > 0 && terminalElement.clientHeight > 0) {
