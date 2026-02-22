@@ -4,6 +4,7 @@ vars:
   ADB: "$HOME/Android/Sdk/platform-tools/adb"
   APKSIGNER: "$HOME/Android/Sdk/build-tools/36.1.0/apksigner"
   ADDR: 10.2.1.225
+  DEVICE: nicphpne
 
 tasks:
   default:
@@ -27,22 +28,6 @@ tasks:
     desc: "Run the app in development mode (Android)"
     cmds:
       - npm run tauri android dev
-
-  "build:zellij-plugin":
-    desc: "Build the Zelland Zellij plugin (wasm32-wasip1)"
-    dir: zellij-plugin
-    cmds:
-      - cargo build --target wasm32-wasip1 --release
-      - cp target/wasm32-wasip1/release/zelland_tabs.wasm ../build/zelland-tabs.wasm
-      - echo "Built build/zelland-tabs.wasm — copy to ~/.config/zellij/plugins/ on each remote host"
-
-  "deploy:zellij-plugin":
-    desc: "Deploy Zellij plugin to remote host (usage: task deploy:zellij-plugin ADDR=user@host)"
-    cmds:
-      - task: "build:zellij-plugin"
-      - ssh {{.ADDR}} "mkdir -p ~/.config/zellij/plugins"
-      - scp build/zelland-tabs.wasm {{.ADDR}}:~/.config/zellij/plugins/zelland-tabs.wasm
-      - echo "✓ Plugin deployed to {{.ADDR}}"
 
   "build:daemon":
     desc: "Build the daemon and CLI"
@@ -145,6 +130,17 @@ tasks:
       - "{{.APKSIGNER}} sign --ks my-release-key.keystore --ks-pass pass:password --key-pass pass:password {{.APK_PATH}}"
       - "{{.ADB}} install -r {{.APK_PATH}}"
       - echo "✓ APK pushed and installed"
+
+  "push:device":
+    desc: "Build, sign, and push APK to a named Android device (usage: task push:device DEVICE=hostname)"
+    vars:
+      APK_PATH: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+    cmds:
+      - task: "build:android"
+      - "{{.APKSIGNER}} sign --ks my-release-key.keystore --ks-pass pass:password --key-pass pass:password {{.APK_PATH}}"
+      - "{{.ADB}} connect {{.DEVICE}}"
+      - "{{.ADB}} -s {{.DEVICE}} install -r {{.APK_PATH}}"
+      - echo "✓ APK pushed and installed on {{.DEVICE}}"
 
   "push:emu":
     desc: "Start emulator (if not running) and push APK"

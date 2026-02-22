@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Menu, X, FileText } from 'lucide-svelte';
+    import { Menu, X, FileText, Terminal as TerminalIcon } from 'lucide-svelte';
     import { appState } from '$lib/stores/app.svelte';
     import { invoke } from '@tauri-apps/api/core';
 
@@ -11,13 +11,6 @@
     function sendKey(seq: string) {
         if (appState.activeSessionId) {
             appState.writeInput(appState.activeSessionId, Array.from(new TextEncoder().encode(seq)));
-        }
-    }
-
-    function sendZellijTab(n: number) {
-        if (appState.activeSessionId) {
-            appState.runZellijAction(appState.activeSessionId, `go-to-tab ${n}`);
-            onScrollToPane(0);
         }
     }
 
@@ -47,17 +40,17 @@
 
     <div class="center-group" data-tauri-drag-region>
         <div role="group" class="tab-group">
-            <!-- Zellij Tabs (live from zelland-tabs plugin) -->
-            {#each appState.zellijTabs as tab}
+            <!-- Terminal Nav Button -->
+            {#if appState.activeSessionId}
                 <button
-                    class="outline contrast topbar-btn zellij-tab-btn"
-                    class:tab-active={tab.active}
-                    onclick={() => sendZellijTab(tab.index + 1)}
-                    title="Tab {tab.index + 1}: {tab.name}"
+                    class="outline contrast topbar-btn file-nav-btn"
+                    onclick={() => onScrollToPane(0)}
+                    title="Terminal"
                 >
-                    {tab.name || tab.index + 1}
+                    <span class="file-icon"><TerminalIcon size={12} /></span>
+                    term
                 </button>
-            {/each}
+            {/if}
 
             <!-- Markdown Nav Buttons -->
             {#each appState.openMarkdownFiles as file, i}
@@ -143,25 +136,6 @@
         margin-bottom: 0 !important;
         line-height: 1;
         border-width: 1px;
-    }
-
-    .zellij-tab-btn {
-        height: 2.2rem;
-        padding: 0 0.6rem !important;
-        max-width: 8rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        display: block;
-        font-size: 0.8rem;
-        margin-bottom: 0 !important;
-        border-width: 1px;
-    }
-
-    .zellij-tab-btn.tab-active {
-        background-color: var(--pico-primary) !important;
-        border-color: var(--pico-primary) !important;
-        color: #1a1b26 !important;
     }
 
     .file-nav-btn {

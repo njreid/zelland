@@ -203,6 +203,39 @@
                 </div>
 
                 <div class="settings-item">
+                    <label class="settings-label-main">CODE FONT</label>
+                    <div class="grid">
+                        <label>
+                            Size (px)
+                            <input
+                                type="number"
+                                value={appState.codeFontSize}
+                                onchange={(e) => appState.setCodeFontSize(parseInt(e.currentTarget.value) || 13)}
+                            />
+                        </label>
+                        <label>
+                            Weight
+                            <select
+                                value={appState.codeFontWeight}
+                                onchange={(e) => appState.setCodeFontWeight(e.currentTarget.value)}
+                            >
+                                <option value="normal">Normal</option>
+                                <option value="bold">Bold</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                                <option value="300">300</option>
+                                <option value="400">400</option>
+                                <option value="500">500</option>
+                                <option value="600">600</option>
+                                <option value="700">700</option>
+                                <option value="800">800</option>
+                                <option value="900">900</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-item">
                     <button class="btn-sm" onclick={() => { showSettings = false; }}>Save Settings</button>
                 </div>
 

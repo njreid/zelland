@@ -14,6 +14,13 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RecentSessionEntry {
+    pub session_name: String,
+    pub connected_at: String,
+    pub readme_excerpt: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Project {
     pub id: String,
     pub name: Option<String>,
@@ -180,6 +187,35 @@ pub async fn daemon_read_file(state: tauri::State<'_, DaemonManager>, url: Strin
         })?;
     
     Ok(content)
+}
+
+#[tauri::command]
+pub async fn daemon_get_recent_sessions(
+    state: tauri::State<'_, DaemonManager>,
+    url: String,
+) -> Result<Vec<RecentSessionEntry>, String> {
+    let res = state.http_client
+        .get(format!("{}/api/v1/sessions/recent", url))
+        .send().await
+        .map_err(|e| e.to_string())?;
+    res.json::<Vec<RecentSessionEntry>>().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn daemon_record_session(
+    state: tauri::State<'_, DaemonManager>,
+    url: String,
+    session_name: String,
+) -> Result<(), String> {
+    let res = state.http_client
+        .post(format!("{}/api/v1/sessions/recent", url))
+        .json(&serde_json::json!({ "session_name": session_name }))
+        .send().await
+        .map_err(|e| e.to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("Failed: {}", res.status()));
+    }
+    Ok(())
 }
 
 #[tauri::command]

@@ -7,7 +7,8 @@
     import TopBar from '$lib/components/TopBar.svelte';
     import Sidebar from '$lib/components/Sidebar.svelte';
     import ConnectionLogs from '$lib/components/ConnectionLogs.svelte';
-    import { Menu, Monitor } from 'lucide-svelte';
+    import { Menu, Terminal as TerminalIcon } from 'lucide-svelte';
+    import type { DaemonRecentSession } from '$lib/stores/app.svelte';
     import { platform } from '@tauri-apps/plugin-os';
 
     let sidebarOpen = $state(false);
@@ -32,6 +33,24 @@
         await appState.connectSession(sessionId);
         appState.triggerTerminalFocus();
         appState.triggerTerminalResize();
+    }
+
+    async function connectDaemonSession(entry: DaemonRecentSession) {
+        await appState.connectDaemonSession(entry);
+        appState.triggerTerminalFocus();
+        appState.triggerTerminalResize();
+    }
+
+    function timeAgo(isoString: string): string {
+        const ms = Date.now() - new Date(isoString).getTime();
+        const s = Math.floor(ms / 1000);
+        if (s < 60) return 'just now';
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h ago`;
+        const d = Math.floor(h / 24);
+        return `${d}d ago`;
     }
 
     function scrollToPane(index: number) {
@@ -90,36 +109,51 @@
                         <Terminal tabId={appState.activeSessionId} />
                     {/key}
                 {:else}
-                    <div class="welcome-screen">
-                        <article onclick={(e) => e.stopPropagation()}>
-                            <header>
-                                <h1 class="title-font lowercase" style="color: var(--pico-primary); margin-bottom: 0;">zelland</h1>
+                    <div class="welcome-screen" onclick={(e) => e.stopPropagation()}>
+                        <div class="welcome-inner">
+                            <div class="welcome-header">
+                                <h1 class="title-font lowercase" style="color: var(--pico-primary); margin-bottom: 0.1rem;">zelland</h1>
                                 <small class="secondary">mobile command center</small>
-                            </header>
-                            
-                            <p>Select a host or session from the sidebar.</p>
-                            
-                            {#if !sidebarOpen}
-                                <footer>
-                                    <button class="outline contrast" onclick={(e) => { e.stopPropagation(); toggleSidebar(); }} style="width: auto; margin: 0 auto 1rem auto; display: flex; align-items: center; gap: 0.5rem;">
-                                        <Menu size={16} /> Open Sidebar
-                                    </button>
+                            </div>
 
-                                    {#if appState.recentSessions.length > 0}
-                                        <div class="recent-sessions">
-                                            <p><small class="secondary uppercase">Recent Sessions</small></p>
-                                            <div class="grid">
-                                                {#each appState.recentSessions as session}
-                                                    <button class="outline secondary btn-sm" onclick={() => connectSession(session.id)}>
-                                                        <Monitor size={14} /> {session.label}
-                                                    </button>
-                                                {/each}
+                            {#if appState.daemonRecentSessions.length > 0}
+                                <div class="recent-sessions">
+                                    <p class="section-label">RECENT</p>
+                                    <div class="session-grid">
+                                        {#each appState.daemonRecentSessions as entry}
+                                            <!-- svelte-ignore a11y_interactive_supports_focus -->
+                                            <div
+                                                class="session-card"
+                                                onclick={() => connectDaemonSession(entry)}
+                                                role="button"
+                                            >
+                                                <div class="card-top">
+                                                    <span class="card-icon"><TerminalIcon size={14} /></span>
+                                                    <span class="card-name">{entry.sessionName}</span>
+                                                    <span class="card-host">{entry.hostLabel || entry.hostAddress}</span>
+                                                </div>
+                                                {#if entry.readmeExcerpt}
+                                                    <p class="card-excerpt">{entry.readmeExcerpt}</p>
+                                                {/if}
+                                                <div class="card-footer">
+                                                    <span class="card-time">{timeAgo(entry.connectedAt)}</span>
+                                                </div>
                                             </div>
-                                        </div>
-                                    {/if}
-                                </footer>
+                                        {/each}
+                                    </div>
+                                </div>
+                            {:else}
+                                <p class="secondary" style="margin-top: 1.5rem; font-size: 0.9rem;">
+                                    Open the sidebar to connect to a session.
+                                </p>
                             {/if}
-                        </article>
+
+                            {#if !sidebarOpen}
+                                <button class="outline contrast menu-btn" onclick={(e) => { e.stopPropagation(); toggleSidebar(); }}>
+                                    <Menu size={16} /> Sidebar
+                                </button>
+                            {/if}
+                        </div>
                     </div>
                 {/if}
                 <ConnectionLogs />
@@ -149,42 +183,138 @@
 
     .welcome-screen {
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
         height: 100%;
-        padding: 2rem;
-        background: radial-gradient(circle at center, var(--pico-form-element-background-color) 0%, var(--pico-background-color) 100%);
+        background: radial-gradient(circle at 40% 40%, var(--pico-form-element-background-color) 0%, var(--pico-background-color) 100%);
+        overflow-y: auto;
     }
 
-    .welcome-screen article {
+    .welcome-inner {
         width: 100%;
-        max-width: 400px;
-        text-align: center;
+        max-width: 480px;
+        padding: 2rem 1.5rem;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
     }
-    
+
+    .welcome-header {
+        margin-bottom: 0.5rem;
+    }
+
     .secondary {
         color: var(--fg-dim);
     }
 
+    .section-label {
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        color: var(--fg-dim);
+        margin: 1rem 0 0.6rem;
+    }
+
     .recent-sessions {
-        margin-top: 1.5rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--pico-border-color);
+        width: 100%;
     }
 
-    .uppercase {
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+    .session-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.6rem;
     }
 
-    .btn-sm {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.75rem;
-        margin-bottom: 0;
+    @media (max-width: 400px) {
+        .session-grid { grid-template-columns: 1fr; }
+    }
+
+    .session-card {
+        background: var(--pico-card-background-color, #1e1f2e);
+        border: 1px solid var(--pico-border-color);
+        border-radius: 6px;
+        padding: 0.85rem 0.9rem;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        transition: border-color 0.15s, background 0.15s;
+        min-height: 5.5rem;
+    }
+
+    .session-card:hover {
+        border-color: var(--pico-primary);
+        background: color-mix(in srgb, var(--pico-primary) 6%, var(--pico-card-background-color, #1e1f2e));
+    }
+
+    .session-card:active {
+        background: color-mix(in srgb, var(--pico-primary) 14%, var(--pico-card-background-color, #1e1f2e));
+    }
+
+    .card-top {
         display: flex;
         align-items: center;
-        justify-content: center;
         gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+
+    .card-icon {
+        color: var(--pico-primary);
+        display: flex;
+        flex-shrink: 0;
+    }
+
+    .card-name {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--pico-color);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .card-host {
+        font-size: 0.65rem;
+        color: var(--fg-dim);
+        background: var(--pico-form-element-background-color);
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .card-excerpt {
+        font-size: 0.72rem;
+        color: var(--fg-dim);
+        line-height: 1.45;
+        margin: 0;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        flex: 1;
+    }
+
+    .card-footer {
+        margin-top: auto;
+    }
+
+    .card-time {
+        font-size: 0.65rem;
+        color: var(--fg-dim);
+        opacity: 0.7;
+    }
+
+    .menu-btn {
+        margin-top: 1.5rem;
+        width: auto;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.45rem 1rem;
+        font-size: 0.85rem;
     }
 </style>

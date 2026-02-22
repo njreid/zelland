@@ -43,6 +43,11 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v1/fs/read", get(handlers::fs::read_file))
         .route("/api/v1/fs/mutate", post(handlers::fs::mutate_file))
+        .route(
+            "/api/v1/sessions/recent",
+            get(handlers::sessions::get_recent_sessions)
+                .post(handlers::sessions::record_session),
+        )
         // Trigger routes (loopback-only)
         .nest("/api/v1/trigger", trigger_routes)
         // Asset serving

@@ -175,6 +175,8 @@ pub fn run() {
             daemon::daemon_activate_project,
             daemon::daemon_read_file,
             daemon::daemon_mutate_file,
+            daemon::daemon_get_recent_sessions,
+            daemon::daemon_record_session,
             ssh_list_zellij_sessions,
             network::start_tunnel,
             network::stop_tunnel,

@@ -22,10 +22,12 @@ export interface Host {
     projects: Project[];
 }
 
-export interface ZellijTab {
-    index: number;
-    name: string;
-    active: boolean;
+export interface DaemonRecentSession {
+    sessionName: string;
+    hostAddress: string;
+    hostLabel: string;
+    connectedAt: string;
+    readmeExcerpt?: string;
 }
 
 export interface Session {
@@ -60,11 +62,12 @@ function createAppState() {
     let terminalFontWeight = $state('400');
     let markdownFontSize = $state(16);
     let markdownFontWeight = $state('400');
+    let codeFontSize = $state(13);
+    let codeFontWeight = $state('400');
     let logs = $state<{ message: string, type: 'info' | 'error' }[]>([]);
     let sshKeys = $state<any[]>([]);
     let daemonConnected = $state(false);
-    let zellijTabs = $state<ZellijTab[]>([]);
-    let tabPollInterval: ReturnType<typeof setInterval> | null = null;
+    let daemonRecentSessions = $state<DaemonRecentSession[]>([]);
 
     // --- Derived ---
     const activeSession = $derived(
@@ -105,42 +108,28 @@ function createAppState() {
         };
     }
 
-    async function fetchZellijTabs() {
-        const session = activeSession;
-        if (!session || session.status !== 'connected') return;
-
-        const command = [
-            `zellij -s ${session.zellijSession}`,
-            `pipe --plugin file:~/.config/zellij/plugins/zelland-tabs.wasm`,
-            `--name list-tabs 2>/dev/null`
-        ].join(' ');
-
-        try {
-            const result = await invoke<string>("run_remote_command", {
-                config: buildSshConfig(session),
-                command
-            });
-            const trimmed = result.trim();
-            if (trimmed.startsWith('[')) {
-                zellijTabs = JSON.parse(trimmed);
+    async function fetchDaemonRecentSessions() {
+        const results: DaemonRecentSession[] = [];
+        for (const host of hosts) {
+            try {
+                const entries = await invoke<any[]>("daemon_get_recent_sessions", {
+                    url: `http://${host.address}:8083`
+                });
+                for (const e of entries) {
+                    results.push({
+                        sessionName: e.session_name,
+                        hostAddress: host.address,
+                        hostLabel: host.label,
+                        connectedAt: e.connected_at,
+                        readmeExcerpt: e.readme_excerpt,
+                    });
+                }
+            } catch {
+                // Host unreachable — skip silently
             }
-        } catch {
-            // Plugin not yet installed or session not ready — silent fail
         }
-    }
-
-    function startTabPolling() {
-        stopTabPolling();
-        fetchZellijTabs();
-        tabPollInterval = setInterval(fetchZellijTabs, 2000);
-    }
-
-    function stopTabPolling() {
-        if (tabPollInterval !== null) {
-            clearInterval(tabPollInterval);
-            tabPollInterval = null;
-        }
-        zellijTabs = [];
+        results.sort((a, b) => b.connectedAt.localeCompare(a.connectedAt));
+        daemonRecentSessions = results.slice(0, 6);
     }
 
     async function saveToStore() {
@@ -156,6 +145,8 @@ function createAppState() {
             await store.set("terminalFontWeight", terminalFontWeight);
             await store.set("markdownFontSize", markdownFontSize);
             await store.set("markdownFontWeight", markdownFontWeight);
+            await store.set("codeFontSize", codeFontSize);
+            await store.set("codeFontWeight", codeFontWeight);
             await store.set("recentSessionIds", recentSessionIds);
             await store.save();
         } catch (e) {
@@ -201,6 +192,8 @@ function createAppState() {
             const savedFontWeight = await store.get<string>("terminalFontWeight");
             const savedMarkdownFontSize = await store.get<number>("markdownFontSize");
             const savedMarkdownFontWeight = await store.get<string>("markdownFontWeight");
+            const savedCodeFontSize = await store.get<number>("codeFontSize");
+            const savedCodeFontWeight = await store.get<string>("codeFontWeight");
             const savedRecentIds = await store.get<string[]>("recentSessionIds");
 
             if (savedHosts) hosts = savedHosts.map(h => ({ ...h, reachable: false, projects: [] }));
@@ -209,10 +202,13 @@ function createAppState() {
             if (savedFontWeight) terminalFontWeight = savedFontWeight;
             if (savedMarkdownFontSize) markdownFontSize = savedMarkdownFontSize;
             if (savedMarkdownFontWeight) markdownFontWeight = savedMarkdownFontWeight;
+            if (savedCodeFontSize) codeFontSize = savedCodeFontSize;
+            if (savedCodeFontWeight) codeFontWeight = savedCodeFontWeight;
             if (savedRecentIds) recentSessionIds = savedRecentIds;
             
             for (const host of hosts) fetchProjectsForHost(host.id);
             fetchSshKeys();
+            fetchDaemonRecentSessions();
         } catch (e) {
             console.error("Failed to load store:", e);
         }
@@ -263,6 +259,8 @@ function createAppState() {
         get terminalFontWeight() { return terminalFontWeight; },
         get markdownFontSize() { return markdownFontSize; },
         get markdownFontWeight() { return markdownFontWeight; },
+        get codeFontSize() { return codeFontSize; },
+        get codeFontWeight() { return codeFontWeight; },
         get terminalFocusTrigger() { return terminalFocusTrigger; },
         get terminalResizeTrigger() { return terminalResizeTrigger; },
         get navigationTrigger() { return navigationTrigger; },
@@ -272,7 +270,7 @@ function createAppState() {
         get sshKeys() { return sshKeys; },
         get viewUpdateTrigger() { return viewUpdateTrigger; },
         get daemonConnected() { return daemonConnected; },
-        get zellijTabs() { return zellijTabs; },
+        get daemonRecentSessions() { return daemonRecentSessions; },
 
         // Methods
         scrollToPane(index: number) { navigationTrigger = index; },
@@ -310,6 +308,16 @@ function createAppState() {
 
         setMarkdownFontWeight(weight: string) {
             markdownFontWeight = weight;
+            saveToStore();
+        },
+
+        setCodeFontSize(size: number) {
+            codeFontSize = size;
+            saveToStore();
+        },
+
+        setCodeFontWeight(weight: string) {
+            codeFontWeight = weight;
             saveToStore();
         },
 
@@ -360,7 +368,6 @@ function createAppState() {
         },
 
         async removeSession(sessionId: string) {
-            if (activeSessionId === sessionId) stopTabPolling();
             sessions = sessions.filter(s => s.id !== sessionId);
             if (activeSessionId === sessionId) activeSessionId = null;
             await saveToStore();
@@ -370,7 +377,6 @@ function createAppState() {
             const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
 
-            stopTabPolling(); // clear any previous session's polling
             session.status = 'connecting';
             activeSessionId = sessionId;
             log(`Connecting to session: ${session.label}...`);
@@ -394,10 +400,15 @@ function createAppState() {
                 
                 session.status = 'connected';
                 log(`Connected to session: ${session.label}.`);
-                startTabPolling();
 
                 recentSessionIds = [sessionId, ...recentSessionIds.filter(id => id !== sessionId)].slice(0, 3);
                 saveToStore();
+
+                // Record this session with the daemon and refresh the recent list
+                invoke("daemon_record_session", {
+                    url: `http://${session.hostAddress}:8083`,
+                    sessionName: session.zellijSession
+                }).then(() => fetchDaemonRecentSessions()).catch(() => {});
 
                 try {
                     await invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` });
@@ -440,6 +451,35 @@ function createAppState() {
             }
 
             await this.connectSession(sessionId);
+        },
+
+        async connectDaemonSession(entry: DaemonRecentSession) {
+            const host = hosts.find(h => h.address === entry.hostAddress);
+            if (!host) return;
+
+            const sessionId = `daemon-${entry.hostAddress}-${entry.sessionName}`;
+            let session = sessions.find(
+                s => s.id === sessionId ||
+                    (s.hostAddress === entry.hostAddress && s.zellijSession === entry.sessionName)
+            );
+
+            if (!session) {
+                session = {
+                    id: sessionId,
+                    label: entry.sessionName,
+                    hostAddress: host.address,
+                    username: host.username,
+                    password: host.password,
+                    port: 22,
+                    type: 'ssh',
+                    zellijSession: entry.sessionName,
+                    status: 'disconnected'
+                };
+                sessions.push(session);
+                await saveToStore();
+            }
+
+            await this.connectSession(session.id);
         },
 
         async writeInput(sessionId: string, data: number[]) {
