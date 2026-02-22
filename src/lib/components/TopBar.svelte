@@ -35,7 +35,7 @@
         <button class="ghost-btn icon-btn key-unit" onclick={(e) => { e.stopPropagation(); onToggleSidebar(); }} title="Menu">
             <Menu size={18} />
         </button>
-        <span class="session-label" onclick={() => onScrollToPane(0)} style="cursor: pointer;">{sessionName}</span>
+        <button class="ghost-btn session-label" onclick={() => onScrollToPane(0)}>{sessionName}</button>
     </div>
 
     <div class="center-group" data-tauri-drag-region>
@@ -109,6 +109,11 @@
         overflow: hidden;
         text-overflow: ellipsis;
         margin-left: 0.5rem;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        text-align: left;
     }
 
     .key-unit {
@@ -122,20 +127,6 @@
         font-size: 0.75rem;
         margin-bottom: 0 !important;
         line-height: 1;
-    }
-
-    .wide-unit {
-        width: 4.4rem;
-        height: 2.2rem;
-        min-width: 4.4rem;
-        padding: 0 !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.85rem;
-        margin-bottom: 0 !important;
-        line-height: 1;
-        border-width: 1px;
     }
 
     .file-nav-btn {

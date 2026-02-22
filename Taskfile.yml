@@ -15,7 +15,7 @@ tasks:
   dev:
     desc: "Run the app in development mode (Desktop)"
     cmds:
-      - pgrep zlnd > /dev/null || zellij action new-pane -- fish -c "task dev:daemon"
+      - pgrep zlnd > /dev/null || timeout 3 zellij action new-pane -- fish -c "task dev:daemon" 2>/dev/null || nohup bash -c "cd daemon-rs && cargo run --bin zlnd" > /tmp/zlnd.log 2>&1 &
       - WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri dev
 
   "dev:daemon":

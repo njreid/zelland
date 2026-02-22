@@ -5,6 +5,7 @@ pub mod network;
 pub mod keystore;
 
 use tauri::{State, AppHandle, Manager};
+use tauri::ipc::Channel;
 #[cfg(target_os = "linux")]
 use webkit2gtk::{SettingsExt, WebInspectorExt, WebViewExt};
 #[cfg(target_os = "linux")]
@@ -12,7 +13,7 @@ use gtk::prelude::*;
 #[cfg(target_os = "linux")]
 use glib;
 
-use crate::ssh::{SshConfig, SshManager};
+use crate::ssh::{SshConfig, SshManager, SshChannelMsg};
 use crate::daemon::DaemonManager;
 use crate::keystore::{KeyManager, StandardKeyManager};
 use std::sync::Arc;
@@ -21,13 +22,13 @@ pub struct ManagedKeyManager(pub Arc<dyn KeyManager>);
 
 #[tauri::command]
 async fn ssh_connect(
-    app_handle: AppHandle, 
-    ssh_state: State<'_, SshManager>, 
+    ssh_state: State<'_, SshManager>,
     key_state: State<'_, ManagedKeyManager>,
-    tab_id: String, 
-    config: SshConfig
+    tab_id: String,
+    config: SshConfig,
+    channel: Channel<SshChannelMsg>,
 ) -> Result<(), String> {
-    ssh_state.connect(tab_id, config, app_handle, key_state.0.clone()).await
+    ssh_state.connect(tab_id, config, channel, key_state.0.clone()).await
 }
 
 #[tauri::command]

@@ -6,7 +6,19 @@ use tokio::sync::{Mutex, mpsc};
 use std::collections::HashMap;
 use std::future::Future;
 use log::{info, error, debug};
+use base64::Engine as _;
+use tauri::ipc::Channel;
 use crate::keystore::KeyManager;
+
+/// Messages sent from the SSH session loop to the frontend via a Tauri Channel.
+#[derive(Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum SshChannelMsg {
+    /// Raw terminal output bytes, base64-encoded.
+    Output { data: String },
+    /// SSH session has ended (clean exit or connection drop).
+    Closed,
+}
 
 /// Establish an authenticated SSH session, handling both connection and auth.
 async fn open_session(
@@ -156,7 +168,7 @@ impl SshManager {
         &self,
         tab_id: String,
         config: SshConfig,
-        app_handle: tauri::AppHandle,
+        output: Channel<SshChannelMsg>,
         key_manager: Arc<dyn KeyManager>,
     ) -> Result<(), String> {
         info!("SSH connect requested for tab: {}, host: {}", tab_id, config.host);
@@ -190,51 +202,65 @@ impl SshManager {
 
         let (tx, mut rx) = mpsc::channel::<SessionMsg>(100);
         let tab_id_spawn = tab_id.clone();
-        let app_handle_clone = app_handle.clone();
 
         tokio::spawn(async move {
-            use tauri::Emitter;
             info!("SSH session loop started for tab {}", tab_id_spawn);
+
+            let mut buf: Vec<u8> = Vec::with_capacity(4096);
+            let mut flush_interval = tokio::time::interval(std::time::Duration::from_millis(8));
+            flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
             loop {
                 tokio::select! {
-                    Some(msg) = rx.recv() => {
+                    msg = rx.recv() => {
                         match msg {
-                            SessionMsg::Data(data) => {
+                            Some(SessionMsg::Data(data)) => {
                                 if let Err(e) = channel.data(&data[..]).await {
                                     error!("Failed to write to SSH channel for tab {}: {}", tab_id_spawn, e);
                                     break;
                                 }
                             }
-                            SessionMsg::Resize { rows, cols } => {
+                            Some(SessionMsg::Resize { rows, cols }) => {
                                 if let Err(e) = channel.window_change(cols, rows, 0, 0).await {
                                     error!("Failed to resize SSH window for tab {}: {}", tab_id_spawn, e);
                                 }
                             }
+                            None => break,
                         }
                     }
-                    Some(msg) = channel.wait() => {
+                    msg = channel.wait() => {
                         match msg {
-                            russh::ChannelMsg::Data { ref data } => {
-                                let _ = app_handle_clone.emit("ssh-output", serde_json::json!({
-                                    "tabId": tab_id_spawn,
-                                    "data": String::from_utf8_lossy(data)
-                                }));
+                            Some(russh::ChannelMsg::Data { ref data }) => {
+                                buf.extend_from_slice(data);
                             }
-                            russh::ChannelMsg::ExitStatus { exit_status } => {
+                            Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
                                 info!("SSH channel exited with status {} for tab {}", exit_status, tab_id_spawn);
                                 break;
                             }
-                            russh::ChannelMsg::Eof => {
+                            Some(russh::ChannelMsg::Eof) => {
                                 info!("SSH channel EOF for tab {}", tab_id_spawn);
                                 break;
                             }
-                            _ => {}
+                            Some(_) => {}
+                            None => break,
                         }
                     }
-                    else => break,
+                    _ = flush_interval.tick() => {
+                        if !buf.is_empty() {
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+                            let _ = output.send(SshChannelMsg::Output { data: b64 });
+                            buf.clear();
+                        }
+                    }
                 }
             }
-            let _ = app_handle_clone.emit("ssh-closed", tab_id_spawn);
+
+            // Flush any output buffered since the last tick before signalling close
+            if !buf.is_empty() {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+                let _ = output.send(SshChannelMsg::Output { data: b64 });
+            }
+            let _ = output.send(SshChannelMsg::Closed);
         });
 
         self.active_sessions.lock().await.insert(tab_id.clone(), tx);

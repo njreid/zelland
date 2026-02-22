@@ -1,8 +1,12 @@
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
+/// Increment this when the pipe protocol changes. Must match PLUGIN_VERSION in
+/// src-tauri/src/lib.rs — Zelland uses this to decide whether to push an update.
+const VERSION: u32 = 2;
+
 /// Background plugin — no visible pane. Subscribes to TabUpdate events and
-/// responds to "list-tabs" pipe messages with a JSON array of tab info.
+/// responds to "list-tabs" pipe messages with a versioned JSON object.
 ///
 /// Install:
 ///   cargo build --target wasm32-wasip1 --release
@@ -38,20 +42,20 @@ impl ZellijPlugin for ZellandTabs {
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
         if pipe_message.name == "list-tabs" {
-            let payload: Vec<serde_json::Value> = self.tabs.iter().map(|t| {
+            let tabs: Vec<serde_json::Value> = self.tabs.iter().map(|t| {
                 serde_json::json!({
                     "index": t.position,
                     "name": t.name,
                     "active": t.active,
                 })
             }).collect();
-            let json = serde_json::to_string(&payload)
-                .unwrap_or_else(|_| "[]".into());
-            // pipe_output_to_cli sends the string to the stdout of the
-            // `zellij pipe` CLI invocation that triggered this message.
-            pipe_output_to_cli(json);
+            // Versioned envelope — Zelland checks "v" and pushes an updated
+            // plugin binary if the version is below what it expects.
+            let json = serde_json::json!({ "v": VERSION, "tabs": tabs }).to_string();
+            cli_pipe_output(&pipe_message.name, &json);
+            // Unblock the CLI so the `zellij pipe` process can exit.
+            unblock_cli_pipe_input(&pipe_message.name);
         }
-        // return false — don't block the pipe; output is already sent
         false
     }
 

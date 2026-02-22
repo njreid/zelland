@@ -31,7 +31,7 @@
 
     let { filename } = $props<{ filename: string }>();
     let content = $state('');
-    let html = $derived(content ? marked.parse(content) : '');
+    let html = $derived(content ? marked.parse(content) as string : '');
     let paneEl: HTMLDivElement | undefined = $state();
     let isDesktop = $state(false);
     let annotationOrder = $state<string[]>([]);
@@ -360,7 +360,7 @@
                         const mermaidNodes = paneEl.querySelectorAll('.mermaid');
                         if (mermaidNodes.length > 0) {
                             await mermaid.run({
-                                nodes: Array.from(mermaidNodes)
+                                nodes: Array.from(mermaidNodes) as HTMLElement[]
                             });
                         }
                     } catch (e) {
@@ -388,7 +388,7 @@
             onmouseup={handleMouseUp}
             onclick={handlePaneClick}
             onscroll={updateActiveToc}
-            style="font-size: {appState.markdownFontSize}px; font-weight: {appState.markdownFontWeight}; --code-font-size: {appState.codeFontSize}px; --code-font-weight: {appState.codeFontWeight};"
+            style="font-size: {appState.markdownFontSize}px; font-weight: {appState.markdownFontWeight}; --code-font-size: {appState.markdownFontSize}px; --code-font-weight: {appState.markdownFontWeight};"
         >
             {#if html}
                 {@html html}

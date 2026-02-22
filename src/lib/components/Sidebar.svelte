@@ -1,6 +1,6 @@
 <script lang="ts">
     import { appState } from '$lib/stores/app.svelte';
-    import { Plus, Server, Terminal, AlertCircle, Globe, Play, Monitor, X, Trash2, Circle, Settings, Copy, Key } from 'lucide-svelte';
+    import { Plus, Server, Terminal, AlertCircle, Globe, Play, Monitor, X, Trash2, Circle, Settings, Copy, Key, RotateCcw } from 'lucide-svelte';
 
     let showAddHost = $state(false);
     let showAddSession = $state(false);
@@ -79,7 +79,7 @@
         <article class="form-card">
             <header>
                 <strong>New Host</strong>
-                <a href="#" onclick={(e) => { e.preventDefault(); resetHostForm(); }} class="close"><X size={14} /></a>
+                <button type="button" class="close" onclick={resetHostForm}><X size={14} /></button>
             </header>
             <form onsubmit={(e) => { e.preventDefault(); handleAddHost(); }}>
                 <input type="text" placeholder="Address (IP/FQDN)" bind:value={newHostAddress} aria-label="Address" required />
@@ -97,7 +97,7 @@
         <article class="form-card">
             <header>
                 <strong>New Session</strong>
-                <a href="#" onclick={(e) => { e.preventDefault(); resetSessionForm(); }} class="close"><X size={14} /></a>
+                <button type="button" class="close" onclick={resetSessionForm}><X size={14} /></button>
             </header>
             <form onsubmit={(e) => { e.preventDefault(); handleAddSession(); }}>
                 <input type="text" placeholder="Name" bind:value={newSessionName} aria-label="Name" required />
@@ -135,11 +135,11 @@
         <article class="form-card">
             <header>
                 <strong>Settings</strong>
-                <a href="#" onclick={(e) => { e.preventDefault(); showSettings = false; }} class="close"><X size={14} /></a>
+                <button type="button" class="close" onclick={() => showSettings = false}><X size={14} /></button>
             </header>
             <div class="settings-content">
                 <div class="settings-item">
-                    <label class="settings-label-main">TERMINAL FONT</label>
+                    <p class="settings-label-main">TERMINAL FONT</p>
                     <div class="grid">
                         <label>
                             Size (px)
@@ -172,7 +172,7 @@
                 </div>
 
                 <div class="settings-item">
-                    <label class="settings-label-main">DOCUMENT FONT</label>
+                    <p class="settings-label-main">DOCUMENT FONT</p>
                     <div class="grid">
                         <label>
                             Size (px)
@@ -188,39 +188,6 @@
                                 value={appState.markdownFontWeight} 
                                 onchange={(e) => appState.setMarkdownFontWeight(e.currentTarget.value)}
                             >
-                                <option value="100">100</option>
-                                <option value="200">200</option>
-                                <option value="300">300</option>
-                                <option value="400">400</option>
-                                <option value="500">500</option>
-                                <option value="600">600</option>
-                                <option value="700">700</option>
-                                <option value="800">800</option>
-                                <option value="900">900</option>
-                            </select>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="settings-item">
-                    <label class="settings-label-main">CODE FONT</label>
-                    <div class="grid">
-                        <label>
-                            Size (px)
-                            <input
-                                type="number"
-                                value={appState.codeFontSize}
-                                onchange={(e) => appState.setCodeFontSize(parseInt(e.currentTarget.value) || 13)}
-                            />
-                        </label>
-                        <label>
-                            Weight
-                            <select
-                                value={appState.codeFontWeight}
-                                onchange={(e) => appState.setCodeFontWeight(e.currentTarget.value)}
-                            >
-                                <option value="normal">Normal</option>
-                                <option value="bold">Bold</option>
                                 <option value="100">100</option>
                                 <option value="200">200</option>
                                 <option value="300">300</option>
@@ -292,18 +259,16 @@
             {#each appState.sessions as session}
                 <li>
                     <div class="session-row-container">
-                        <a href="#" 
-                           class={appState.activeSessionId === session.id ? 'primary' : 'secondary'}
-                           onclick={(e) => { e.preventDefault(); appState.connectSession(session.id).then(() => { appState.triggerTerminalFocus(); appState.triggerTerminalResize(); }); }}
-                           role="button"
-                           class:outline={appState.activeSessionId !== session.id}
+                        <button
+                           class={appState.activeSessionId === session.id ? 'session-btn primary' : 'session-btn secondary outline'}
+                           onclick={() => { appState.connectSession(session.id); appState.triggerTerminalFocus(); appState.triggerTerminalResize(); }}
                            style="flex: 1;"
                         >
                             <div class="flex-row">
                                 <Circle size={8} fill={getSessionStatusColor(session.status)} stroke="none" />
                                 <Monitor size={14} /> {session.label}
                             </div>
-                        </a>
+                        </button>
                         <button class="outline contrast delete-btn" onclick={() => appState.removeSession(session.id)} aria-label="Delete Session">
                             <Trash2 size={14} />
                         </button>
@@ -328,20 +293,20 @@
                                 <span class={!host.reachable ? 'text-error' : ''}>{host.label}</span>
                             </div>
                             <div class="flex-row gap-1">
-                                <a href="#" onclick={(e) => { e.preventDefault(); e.stopPropagation(); appState.fetchProjectsForHost(host.id); }} class="secondary icon-only-tiny">
+                                <button type="button" onclick={(e) => { e.stopPropagation(); appState.fetchProjectsForHost(host.id); }} class="secondary icon-only-tiny">
                                     <Server size={12} />
-                                </a>
-                                <a href="#" onclick={(e) => { e.preventDefault(); e.stopPropagation(); appState.removeHost(host.id); }} class="secondary hover-error icon-only-tiny">
+                                </button>
+                                <button type="button" onclick={(e) => { e.stopPropagation(); appState.removeHost(host.id); }} class="secondary hover-error icon-only-tiny">
                                     <Trash2 size={12} />
-                                </a>
+                                </button>
                             </div>
                         </summary>
                         <ul>
                             {#each host.projects as project}
                                 <li>
-                                    <a href="#" onclick={(e) => { e.preventDefault(); appState.activateProject(host.id, project.id).then(() => { appState.triggerTerminalFocus(); appState.triggerTerminalResize(); }); }}>
+                                    <button type="button" class="project-btn" onclick={() => { appState.activateProject(host.id, project.id).then(() => { appState.triggerTerminalFocus(); appState.triggerTerminalResize(); }); }}>
                                         <Play size={10} /> {project.name || project.session_name}
-                                    </a>
+                                    </button>
                                 </li>
                             {/each}
                         </ul>
@@ -353,6 +318,12 @@
 
     <!-- Bottom Settings Button -->
     <div class="sidebar-footer">
+        {#if appState.activeSessionId}
+            <button class="outline restart-btn" onclick={() => appState.restartActiveSession()}>
+                <RotateCcw size={14} />
+                <span>Restart Terminal</span>
+            </button>
+        {/if}
         <div class="sidebar-actions grid">
             <button class="outline contrast action-btn" onclick={() => { showAddHost = !showAddHost; showAddSession = false; showSettings = false; }}>
                 <Server size={14} />
@@ -386,27 +357,6 @@
         box-shadow: 4px 0 10px rgba(0, 0, 0, 0.3);
     }
 
-    nav {
-        padding: 0.5rem 1rem;
-        border-bottom: 1px solid var(--pico-border-color);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        min-height: 3rem;
-    }
-    
-    nav ul {
-        margin: 0;
-        padding: 0;
-        display: flex;
-        gap: 0.5rem;
-    }
-    
-    nav li {
-        list-style: none;
-        padding: 0;
-    }
-
     .sidebar-footer {
         padding: 0.75rem 1rem;
         border-top: 1px solid var(--pico-border-color);
@@ -417,6 +367,23 @@
 
     .sidebar-actions {
         margin-bottom: 0;
+    }
+
+    .restart-btn {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.75rem;
+        font-size: 0.85rem;
+        margin-bottom: 0;
+        border-width: 1px;
+        color: var(--pico-primary);
+        border-color: var(--pico-primary);
+    }
+    .restart-btn:hover {
+        background: color-mix(in srgb, var(--pico-primary) 12%, transparent);
     }
 
     .action-btn, .settings-trigger {
@@ -435,11 +402,6 @@
         padding: 0.4rem;
     }
 
-    .icon-only {
-        padding: 0.25rem;
-        border: none;
-        display: flex;
-    }
 
     .icon-only-tiny {
         padding: 2px;
@@ -566,14 +528,41 @@
         border-color: var(--error);
     }
 
-    a[role="button"] {
+    button.close {
+        background: none;
+        border: none;
+        padding: 0;
+        display: flex;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    .session-btn {
         width: 100%;
         text-align: left;
         padding: 0.4rem;
         font-size: 0.85rem;
         border-width: 1px;
     }
-    
+
+    .project-btn {
+        background: none;
+        border: none;
+        padding: 0.2rem 0.4rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        color: var(--pico-color);
+        width: 100%;
+        text-align: left;
+        margin: 0;
+    }
+    .project-btn:hover {
+        color: var(--pico-primary);
+    }
+
     small {
         font-size: 0.7rem;
         font-weight: bold;

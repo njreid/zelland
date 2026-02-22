@@ -62,8 +62,6 @@ function createAppState() {
     let terminalFontWeight = $state('400');
     let markdownFontSize = $state(16);
     let markdownFontWeight = $state('400');
-    let codeFontSize = $state(13);
-    let codeFontWeight = $state('400');
     let logs = $state<{ message: string, type: 'info' | 'error' }[]>([]);
     let sshKeys = $state<any[]>([]);
     let daemonConnected = $state(false);
@@ -145,8 +143,6 @@ function createAppState() {
             await store.set("terminalFontWeight", terminalFontWeight);
             await store.set("markdownFontSize", markdownFontSize);
             await store.set("markdownFontWeight", markdownFontWeight);
-            await store.set("codeFontSize", codeFontSize);
-            await store.set("codeFontWeight", codeFontWeight);
             await store.set("recentSessionIds", recentSessionIds);
             await store.save();
         } catch (e) {
@@ -192,8 +188,6 @@ function createAppState() {
             const savedFontWeight = await store.get<string>("terminalFontWeight");
             const savedMarkdownFontSize = await store.get<number>("markdownFontSize");
             const savedMarkdownFontWeight = await store.get<string>("markdownFontWeight");
-            const savedCodeFontSize = await store.get<number>("codeFontSize");
-            const savedCodeFontWeight = await store.get<string>("codeFontWeight");
             const savedRecentIds = await store.get<string[]>("recentSessionIds");
 
             if (savedHosts) hosts = savedHosts.map(h => ({ ...h, reachable: false, projects: [] }));
@@ -202,8 +196,6 @@ function createAppState() {
             if (savedFontWeight) terminalFontWeight = savedFontWeight;
             if (savedMarkdownFontSize) markdownFontSize = savedMarkdownFontSize;
             if (savedMarkdownFontWeight) markdownFontWeight = savedMarkdownFontWeight;
-            if (savedCodeFontSize) codeFontSize = savedCodeFontSize;
-            if (savedCodeFontWeight) codeFontWeight = savedCodeFontWeight;
             if (savedRecentIds) recentSessionIds = savedRecentIds;
             
             for (const host of hosts) fetchProjectsForHost(host.id);
@@ -259,8 +251,6 @@ function createAppState() {
         get terminalFontWeight() { return terminalFontWeight; },
         get markdownFontSize() { return markdownFontSize; },
         get markdownFontWeight() { return markdownFontWeight; },
-        get codeFontSize() { return codeFontSize; },
-        get codeFontWeight() { return codeFontWeight; },
         get terminalFocusTrigger() { return terminalFocusTrigger; },
         get terminalResizeTrigger() { return terminalResizeTrigger; },
         get navigationTrigger() { return navigationTrigger; },
@@ -308,16 +298,6 @@ function createAppState() {
 
         setMarkdownFontWeight(weight: string) {
             markdownFontWeight = weight;
-            saveToStore();
-        },
-
-        setCodeFontSize(size: number) {
-            codeFontSize = size;
-            saveToStore();
-        },
-
-        setCodeFontWeight(weight: string) {
-            codeFontWeight = weight;
             saveToStore();
         },
 
@@ -373,56 +353,52 @@ function createAppState() {
             await saveToStore();
         },
 
-        async connectSession(sessionId: string) {
+        // Prepare a session for connection: sets status + makes Terminal mount.
+        // Terminal.svelte takes it from here by calling invoke('ssh_connect') itself.
+        connectSession(sessionId: string) {
             const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
-
             session.status = 'connecting';
             activeSessionId = sessionId;
             log(`Connecting to session: ${session.label}...`);
+        },
 
-            try {
-                const authMethod = session.key_id ? "Key" : session.private_key_path ? "PrivateKey" : "Password";
-                await invoke('ssh_connect', {
-                    tabId: session.id,
-                    config: {
-                        host: session.hostAddress,
-                        port: session.port,
-                        username: session.username,
-                        auth_method: authMethod,
-                        password: session.password || null,
-                        private_key_path: session.private_key_path || null,
-                        private_key_passphrase: null,
-                        key_id: session.key_id || null,
-                        session_name: session.zellijSession
-                    }
-                });
-                
-                session.status = 'connected';
-                log(`Connected to session: ${session.label}.`);
+        // Returns the SSH config Terminal.svelte needs to call ssh_connect.
+        getSshConfig(sessionId: string) {
+            const session = sessions.find(s => s.id === sessionId);
+            return session ? buildSshConfig(session) : null;
+        },
 
-                recentSessionIds = [sessionId, ...recentSessionIds.filter(id => id !== sessionId)].slice(0, 3);
-                saveToStore();
+        // Called by Terminal.svelte after invoke('ssh_connect') resolves.
+        onSessionConnected(sessionId: string) {
+            const session = sessions.find(s => s.id === sessionId);
+            if (!session) return;
+            session.status = 'connected';
+            log(`Connected to session: ${session.label}.`);
+            recentSessionIds = [sessionId, ...recentSessionIds.filter(id => id !== sessionId)].slice(0, 3);
+            saveToStore();
+            invoke("daemon_record_session", {
+                url: `http://${session.hostAddress}:8083`,
+                sessionName: session.zellijSession
+            }).then(() => fetchDaemonRecentSessions()).catch(() => {});
+            invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` })
+                .then(() => { daemonConnected = true; })
+                .catch(() => { daemonConnected = false; });
+        },
 
-                // Record this session with the daemon and refresh the recent list
-                invoke("daemon_record_session", {
-                    url: `http://${session.hostAddress}:8083`,
-                    sessionName: session.zellijSession
-                }).then(() => fetchDaemonRecentSessions()).catch(() => {});
+        // Called by Terminal.svelte when invoke('ssh_connect') throws.
+        onSessionConnectionFailed(sessionId: string, error: string) {
+            const session = sessions.find(s => s.id === sessionId);
+            if (session) session.status = 'error';
+            daemonConnected = false;
+            log(`Connection failed for ${session?.label}: ${error}`, 'error');
+        },
 
-                try {
-                    await invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` });
-                    daemonConnected = true;
-                    log(`Connected to daemon at ${session.hostAddress}`);
-                } catch (de) {
-                    daemonConnected = false;
-                    console.warn("Daemon WebSocket connection failed:", de);
-                }
-            } catch (e) {
-                daemonConnected = false;
-                session.status = 'error';
-                log(`Connection failed for ${session.label}: ${e}`, 'error');
-            }
+        // Called by Terminal.svelte when the SSH channel sends a Closed message.
+        onSessionClosed(sessionId: string) {
+            const session = sessions.find(s => s.id === sessionId);
+            if (session) session.status = 'disconnected';
+            if (activeSessionId === sessionId) activeSessionId = null;
         },
 
         async activateProject(hostId: string, projectId: string) {
@@ -450,7 +426,7 @@ function createAppState() {
                 await saveToStore();
             }
 
-            await this.connectSession(sessionId);
+            this.connectSession(sessionId);
         },
 
         async connectDaemonSession(entry: DaemonRecentSession) {
@@ -479,15 +455,41 @@ function createAppState() {
                 await saveToStore();
             }
 
-            await this.connectSession(session.id);
+            this.connectSession(session.id);
         },
 
-        async writeInput(sessionId: string, data: number[]) {
+        async closeActiveSession() {
+            if (!activeSessionId) return;
+            const session = sessions.find(s => s.id === activeSessionId);
             try {
-                await invoke("ssh_write", { tabId: sessionId, data });
+                await invoke("ssh_disconnect", { tabId: activeSessionId });
             } catch (e) {
-                console.error("Failed to write input:", e);
+                console.warn("SSH disconnect failed:", e);
             }
+            if (session) session.status = 'disconnected';
+            activeSessionId = null;
+        },
+
+        async restartActiveSession() {
+            if (!activeSessionId) return;
+            const sessionId = activeSessionId;
+            const session = sessions.find(s => s.id === sessionId);
+            if (!session) return;
+
+            // Tear down: disconnect and null out activeSessionId so Terminal unmounts
+            try { await invoke("ssh_disconnect", { tabId: sessionId }); } catch {}
+            session.status = 'disconnected';
+            activeSessionId = null;
+
+            // Give Svelte a tick to destroy the old Terminal component
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Reconnect — connectSession sets activeSessionId and remounts Terminal
+            this.connectSession(sessionId);
+        },
+
+        writeInput(sessionId: string, data: number[]) {
+            invoke("ssh_write", { tabId: sessionId, data }).catch(() => {});
         },
 
         async runZellijAction(sessionId: string, action: string) {

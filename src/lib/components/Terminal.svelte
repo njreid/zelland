@@ -6,15 +6,16 @@
     import { CanvasAddon } from '@xterm/addon-canvas';
     import '@xterm/xterm/css/xterm.css';
     import { appState } from '$lib/stores/app.svelte';
-    import { listen } from '@tauri-apps/api/event';
+    import { invoke } from '@tauri-apps/api/core';
+    import { Channel } from '@tauri-apps/api/core';
 
     let { tabId } = $props<{ tabId: string }>();
     
     let terminalElement: HTMLDivElement;
     let term: Terminal;
     let fitAddon: FitAddon;
-    let unlisteners: (() => void)[] = [];
     let resizeObserver: ResizeObserver;
+    let destroyed = false;
 
     onMount(() => {
         term = new Terminal({
@@ -66,24 +67,44 @@
         const onWindowResize = () => doFitAndResize();
         window.addEventListener('resize', onWindowResize);
 
-        term.onData(async (data) => {
-            const encoder = new TextEncoder();
-            const bytes = encoder.encode(data);
-            await appState.writeInput(tabId, Array.from(bytes));
+        term.onData((data) => {
+            const bytes = new TextEncoder().encode(data);
+            appState.writeInput(tabId, Array.from(bytes));
         });
 
-        // Listen to both output types
-        listen('ssh-output', (event: any) => {
-            if (event.payload.tabId === tabId) {
-                term.write(event.payload.data);
-            }
-        }).then(u => unlisteners.push(u));
+        // Kick off the SSH connection in the background — doesn't block mount.
+        connectSsh();
 
         return () => {
             if (resizeObserver) resizeObserver.disconnect();
             window.removeEventListener('resize', onWindowResize);
         };
     });
+
+    type SshMsg = { type: 'Output'; data: string } | { type: 'Closed' };
+
+    async function connectSsh() {
+        const config = appState.getSshConfig(tabId);
+        if (!config) return;
+
+        const outputChannel = new Channel<SshMsg>();
+        outputChannel.onmessage = (msg) => {
+            if (destroyed) return;
+            if (msg.type === 'Output') {
+                const bin = atob(msg.data);
+                term.write(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+            } else if (msg.type === 'Closed') {
+                appState.onSessionClosed(tabId);
+            }
+        };
+
+        try {
+            await invoke('ssh_connect', { tabId, config, channel: outputChannel });
+            if (!destroyed) appState.onSessionConnected(tabId);
+        } catch (e) {
+            if (!destroyed) appState.onSessionConnectionFailed(tabId, String(e));
+        }
+    }
 
     // Reactive focus trigger
     $effect(() => {
@@ -121,8 +142,9 @@
     });
 
     onDestroy(() => {
+        destroyed = true;
         if (term) term.dispose();
-        unlisteners.forEach(u => u());
+        invoke('ssh_disconnect', { tabId }).catch(() => {});
     });
 
     export function focus() {

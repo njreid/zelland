@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { highlightAnnotations } from './marked-annotations';
 import { marked } from 'marked';
+import type { Ann } from './annotations.svelte';
 import { markedAnnotationExtension, highlightAnnotations } from './marked-annotations';
 
 marked.use(markedAnnotationExtension);
