@@ -10,8 +10,7 @@
 #   "hooks": {
 #     "PostToolUse": [{
 #       "matcher": "AskUserQuestion",
-#       "type": "command",
-#       "command": "zelland-ask-notify"
+#       "hooks": [{ "type": "command", "command": "zelland-ask-notify" }]
 #     }]
 #   }
 
@@ -21,3 +20,6 @@ QUESTION=$(printf '%s' "$INPUT" | jq -r '.tool_input.questions[0].question // "C
 zn notify "Claude needs your answer" "$QUESTION" \
     --source claude_code \
     --question "$QUESTION"
+
+# Gemini CLI requires valid JSON on stdout (exit 0 = success)
+printf '{}'

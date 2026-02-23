@@ -9,10 +9,6 @@ use tauri::{State, AppHandle, Manager};
 use tauri::ipc::Channel;
 #[cfg(target_os = "linux")]
 use webkit2gtk::{SettingsExt, WebInspectorExt, WebViewExt};
-#[cfg(target_os = "linux")]
-use gtk::prelude::*;
-#[cfg(target_os = "linux")]
-use glib;
 
 use crate::ssh::{SshConfig, SshManager, SshChannelMsg};
 use crate::daemon::DaemonManager;
@@ -27,9 +23,11 @@ async fn ssh_connect(
     key_state: State<'_, ManagedKeyManager>,
     tab_id: String,
     config: SshConfig,
+    rows: u16,
+    cols: u16,
     channel: Channel<SshChannelMsg>,
 ) -> Result<(), String> {
-    ssh_state.connect(tab_id, config, channel, key_state.0.clone()).await
+    ssh_state.connect(tab_id, config, rows, cols, channel, key_state.0.clone()).await
 }
 
 #[tauri::command]
@@ -188,7 +186,7 @@ pub fn run() {
             daemon::daemon_get_projects,
             daemon::daemon_activate_project,
             daemon::daemon_read_file,
-            daemon::daemon_mutate_file,
+            daemon::daemon_annotate_file,
             daemon::daemon_get_recent_sessions,
             daemon::daemon_record_session,
             ssh_list_zellij_sessions,

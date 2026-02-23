@@ -243,6 +243,42 @@ pub async fn daemon_record_session(
 }
 
 #[tauri::command]
+pub async fn daemon_annotate_file(
+    state: tauri::State<'_, DaemonManager>,
+    url: String,
+    path: String,
+    ann_id: String,
+    quote: String,
+    prefix: String,
+    author: String,
+    body: String,
+) -> Result<(), String> {
+    debug!("Annotating file via daemon: {} for ann {}", path, ann_id);
+    let res = state.http_client.post(format!("{}/api/v1/fs/annotate", url))
+        .json(&serde_json::json!({
+            "path": path,
+            "ann_id": ann_id,
+            "quote": quote,
+            "prefix": prefix,
+            "author": author,
+            "body": body,
+        }))
+        .send().await
+        .map_err(|e| {
+            error!("Failed to send annotate request for {}: {}", path, e);
+            e.to_string()
+        })?;
+    
+    if !res.status().is_success() {
+        let err = format!("Failed to annotate file: status {}", res.status());
+        error!("{}", err);
+        return Err(err);
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn daemon_mutate_file(
     state: tauri::State<'_, DaemonManager>,
     url: String,

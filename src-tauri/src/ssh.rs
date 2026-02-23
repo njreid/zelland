@@ -22,7 +22,8 @@ pub enum SshChannelMsg {
     Viewport { 
         #[serde(with = "serde_bytes")]
         data: Vec<u8>, 
-        at_bottom: bool 
+        at_bottom: bool,
+        mouse_mode: bool,
     },
     /// SSH session has ended (clean exit or connection drop).
     Closed,
@@ -176,6 +177,8 @@ impl SshManager {
         &self,
         tab_id: String,
         config: SshConfig,
+        rows: u16,
+        cols: u16,
         output: Channel<SshChannelMsg>,
         key_manager: Arc<dyn KeyManager>,
     ) -> Result<(), String> {
@@ -193,8 +196,8 @@ impl SshManager {
                 format!("Failed to open channel: {}", e)
             })?;
 
-        // Initialize PTY with provided config (could be expanded to take rows/cols from UI)
-        channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await
+        // Initialize PTY with provided dimensions
+        channel.request_pty(true, "xterm-256color", cols as u32, rows as u32, 0, 0, &[]).await
             .map_err(|e| {
                 error!("Failed to request PTY for tab {}: {}", tab_id, e);
                 format!("Failed to request PTY: {}", e)
@@ -215,7 +218,7 @@ impl SshManager {
         tokio::spawn(async move {
             info!("SSH session loop started for tab {}", tab_id_spawn);
 
-            let mut ts = TerminalSession::new(80, 24);
+            let mut ts = TerminalSession::new(cols, rows);
             
             // Optimized flush interval (60 FPS)
             let mut flush_interval = tokio::time::interval(std::time::Duration::from_millis(16));
@@ -261,10 +264,12 @@ impl SshManager {
                         if ts.is_dirty() {
                             // Strategy 1: Send only the visible viewport rendered by Rust.
                             // This eliminates double-parsing (Rust and JS both parsing ANSI).
+                            let mouse_mode = ts.get_mouse_mode();
                             let viewport = ts.render_viewport();
                             let _ = output.send(SshChannelMsg::Viewport { 
                                 data: viewport.to_vec(), 
-                                at_bottom: true 
+                                at_bottom: true,
+                                mouse_mode,
                             });
                         }
                     }
@@ -335,12 +340,14 @@ mod tests {
     fn test_ssh_channel_msg_serialization() {
         let msg = SshChannelMsg::Viewport { 
             data: vec![1, 2, 3], 
-            at_bottom: true 
+            at_bottom: true,
+            mouse_mode: false,
         };
         let json = serde_json::to_string(&msg).unwrap();
-        // With tag="type" and content="data", it should be {"type":"Viewport","data":{"data":[1,2,3],"at_bottom":true}}
+        // With tag="type" and content="data", it should be {"type":"Viewport","data":{"data":[1,2,3],"at_bottom":true,"mouse_mode":false}}
         assert!(json.contains("\"type\":\"Viewport\""));
         assert!(json.contains("\"data\":[1,2,3]"));
         assert!(json.contains("\"at_bottom\":true"));
+        assert!(json.contains("\"mouse_mode\":false"));
     }
 }

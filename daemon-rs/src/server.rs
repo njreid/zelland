@@ -7,14 +7,14 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::assets::AssetManager;
 use crate::config::Config;
 use crate::handlers;
 use crate::watcher::{self, WatchCommand};
 use crate::ws::{self, ClientRegistry};
-use crate::yjs::DocManager;
+use crate::loro_manager::LoroManager;
 
 /// Shared application state, passed to all handlers via axum's State extractor.
 #[derive(Clone)]
@@ -23,7 +23,7 @@ pub struct AppState {
     pub asset_manager: AssetManager,
     pub registry: ClientRegistry,
     pub watcher_tx: mpsc::Sender<WatchCommand>,
-    pub doc_manager: DocManager,
+    pub loro_manager: Arc<LoroManager>,
 }
 
 /// Build the axum router with all routes.
@@ -43,7 +43,7 @@ pub fn build_router(state: AppState) -> Router {
             post(handlers::projects::activate_project),
         )
         .route("/api/v1/fs/read", get(handlers::fs::read_file))
-        .route("/api/v1/fs/mutate", post(handlers::fs::mutate_file))
+        .route("/api/v1/fs/annotate", post(handlers::fs::annotate_file))
         .route(
             "/api/v1/sessions/recent",
             get(handlers::sessions::get_recent_sessions)
@@ -100,7 +100,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     asset_manager.start_cleanup();
 
     let registry = ClientRegistry::new();
-    let doc_manager = DocManager::new();
+    let loro_manager = Arc::new(LoroManager::new());
 
     let watcher_tx = watcher::start_watcher(registry.clone(), asset_manager.clone());
 
@@ -109,20 +109,16 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         asset_manager,
         registry,
         watcher_tx,
-        doc_manager: doc_manager.clone(),
+        loro_manager,
     };
 
     let app = build_router(state).into_make_service_with_connect_info::<SocketAddr>();
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
 
-    // Graceful shutdown: flush all YJS documents
-    let doc_manager_shutdown = doc_manager;
+    // Graceful shutdown
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_ok() {
-            info!("Shutdown signal received, flushing documents...");
-            if let Err(e) = doc_manager_shutdown.flush_all().await {
-                error!("Failed to flush documents on shutdown: {}", e);
-            }
+            info!("Shutdown signal received, exiting...");
             std::process::exit(0);
         }
     });
@@ -156,7 +152,7 @@ mod tests {
             asset_manager: AssetManager::new(),
             registry: ClientRegistry::new(),
             watcher_tx,
-            doc_manager: DocManager::new(),
+            loro_manager: Arc::new(LoroManager::new()),
         }
     }
 

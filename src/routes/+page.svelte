@@ -90,7 +90,7 @@
         </div>
     {/if}
 
-    <div class="grid" style="flex: 1; overflow: hidden; position: relative;">
+    <div style="display: flex; flex: 1; overflow: hidden; position: relative;">
         {#if sidebarOpen}
             <!-- Prevent clicks inside the sidebar from closing it -->
             <div onclick={(e) => e.stopPropagation()}>

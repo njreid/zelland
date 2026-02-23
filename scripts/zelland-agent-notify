@@ -8,7 +8,7 @@
 #
 # Install: copy to ~/bin/ or ~/.local/bin/ and chmod +x
 # Hook config (Claude Code ~/.claude/settings.json):
-#   "hooks": { "Stop": [{ "type": "command", "command": "zelland-agent-notify claude_code" }] }
+#   "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "zelland-agent-notify claude_code" }] }] }
 
 SOURCE="${1:-user}"
 INPUT=$(cat)
@@ -21,3 +21,6 @@ if [ -n "$QUESTION" ]; then
 else
     zn notify "$TITLE" "$BODY" --source "$SOURCE"
 fi
+
+# Gemini CLI requires valid JSON on stdout (exit 0 = success)
+printf '{}'

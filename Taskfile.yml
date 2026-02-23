@@ -38,11 +38,17 @@ tasks:
       - cp target/release/zlnd ../build/zlnd
       - cp target/release/zn ../build/zn
 
-  "build:linux":
-    desc: "Build the app for Linux (Production)"
+  "build:bin":
+    desc: "Build the app binary only (no AppImage/deb/rpm bundles)"
     cmds:
+      - npm run tauri build -- --no-bundle
       - task: "build:daemon"
+
+  "build:linux":
+    desc: "Build the app for Linux (Production, includes AppImage/deb/rpm bundles)"
+    cmds:
       - npm run tauri build
+      - task: "build:daemon"
 
   "build:android":
     desc: "Build the app for Android (Production APK)"
@@ -149,15 +155,62 @@ tasks:
       - task: "push:android"
 
   "install":
-    desc: "Build and install zelland, zn, and zlnd to ~/bin; create/update zlnd systemd user service"
+    desc: "Build and install zelland, zn, and zlnd to ~/bin; install hook scripts; configure Claude Code + Gemini CLI hooks; create/update zlnd systemd user service"
     cmds:
-      - task: "build:linux"
+      - task: "build:bin"
       - mkdir -p ~/bin
       - cp build/zn ~/bin/zn
       - cp build/zlnd ~/bin/zlnd
       - cp src-tauri/target/release/zelland ~/bin/zelland
       - chmod +x ~/bin/zn ~/bin/zlnd ~/bin/zelland
       - echo "✓ Binaries installed to ~/bin"
+      - cp scripts/zelland-agent-notify ~/bin/zelland-agent-notify
+      - cp scripts/zelland-ask-notify ~/bin/zelland-ask-notify
+      - chmod +x ~/bin/zelland-agent-notify ~/bin/zelland-ask-notify
+      - echo "✓ Hook scripts installed to ~/bin"
+      - |
+        # --- Claude Code hooks (~/.claude/settings.json) ---
+        CLAUDE_CFG="$HOME/.claude/settings.json"
+        mkdir -p "$(dirname "$CLAUDE_CFG")"
+        [ -f "$CLAUDE_CFG" ] || echo '{}' > "$CLAUDE_CFG"
+        UPDATED=$(jq '
+          .hooks.Stop = (
+            (.hooks.Stop // [])
+            | map(select(
+                (.command == "zelland-agent-notify claude_code") or
+                ((.hooks // []) | map(.command) | contains(["zelland-agent-notify claude_code"]))
+                | not
+              ))
+            | . + [{"hooks":[{"type":"command","command":"zelland-agent-notify claude_code"}]}]
+          )
+          | .hooks.PostToolUse = (
+            (.hooks.PostToolUse // [])
+            | map(select(
+                (.command == "zelland-ask-notify") or
+                ((.hooks // []) | map(.command) | contains(["zelland-ask-notify"]))
+                | not
+              ))
+            | . + [{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"zelland-ask-notify"}]}]
+          )
+        ' "$CLAUDE_CFG")
+        printf '%s\n' "$UPDATED" > "$CLAUDE_CFG"
+        echo "✓ Claude Code hooks configured in $CLAUDE_CFG"
+      - |
+        # --- Gemini CLI hooks (~/.gemini/settings.json) ---
+        GEMINI_CFG="$HOME/.gemini/settings.json"
+        mkdir -p "$(dirname "$GEMINI_CFG")"
+        [ -f "$GEMINI_CFG" ] || echo '{}' > "$GEMINI_CFG"
+        UPDATED=$(jq '
+          .hooks.AfterAgent = (
+            (.hooks.AfterAgent // [])
+            | map(select(
+                (.hooks // []) | map(.command) | contains(["zelland-agent-notify gemini_cli"]) | not
+              ))
+            | . + [{"hooks":[{"name":"zelland-notify","type":"command","command":"zelland-agent-notify gemini_cli"}]}]
+          )
+        ' "$GEMINI_CFG")
+        printf '%s\n' "$UPDATED" > "$GEMINI_CFG"
+        echo "✓ Gemini CLI hooks configured in $GEMINI_CFG"
       - |
         SERVICE_FILE="$HOME/.config/systemd/user/zlnd.service"
         mkdir -p "$(dirname "$SERVICE_FILE")"

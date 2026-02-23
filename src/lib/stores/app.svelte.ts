@@ -249,6 +249,45 @@ function createAppState() {
             lastAgentNotification = payload;
             log(`Agent notification: ${payload.title}`);
         });
+
+        listen<any>("navigate-to-session", (event) => {
+            const payload = event.payload;
+            let session_name: string | null = null;
+            let tab_index = 0;
+
+            if (typeof payload === 'string') {
+                try {
+                    const parsed = JSON.parse(payload);
+                    session_name = parsed.session_name;
+                    tab_index = parsed.tab_index ?? 0;
+                } catch {
+                    session_name = payload;
+                }
+            } else if (payload && typeof payload === 'object') {
+                session_name = payload.session_name;
+                tab_index = payload.tab_index ?? 0;
+            }
+
+            if (session_name) {
+                const session = sessions.find(s => s.zellijSession === session_name);
+                if (session) {
+                    if (session.status !== 'connected') {
+                        session.status = 'connecting';
+                        activeSessionId = session.id;
+                    } else {
+                        activeSessionId = session.id;
+                        if (tab_index > 0) {
+                            // Using a timeout to ensure terminal is focused before sending action
+                            setTimeout(() => {
+                                const command = `zellij -s ${session.zellijSession} action go-to-tab ${tab_index}`;
+                                invoke("run_remote_command", { config: buildSshConfig(session), command }).catch(() => {});
+                            }, 500);
+                        }
+                    }
+                    navigationTrigger = 0; // Switch to terminal pane
+                }
+            }
+        });
     }
 
     init();
@@ -416,6 +455,9 @@ function createAppState() {
             invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` })
                 .then(() => { daemonConnected = true; })
                 .catch(() => { daemonConnected = false; });
+            
+            // Re-trigger resize to sync backend
+            this.triggerTerminalResize();
         },
 
         // Called by Terminal.svelte when invoke('ssh_connect') throws.
@@ -550,13 +592,10 @@ function createAppState() {
         },
 
         async resize(sessionId: string, rows: number, cols: number) {
-            const session = sessions.find(s => s.id === sessionId);
-            if (session?.status === 'connected') {
-                try {
-                    await invoke("ssh_resize", { tabId: sessionId, rows, cols });
-                } catch (e) {
-                    console.error("Failed to resize session:", e);
-                }
+            try {
+                await invoke("ssh_resize", { tabId: sessionId, rows, cols });
+            } catch (e) {
+                // Silently fail if session is not yet active in backend
             }
         }
     };

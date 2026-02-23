@@ -1,245 +1,125 @@
-# Annotation System Design
+# Annotation System Design (Loro + In-Doc Storage)
 
-Collaborative annotations for Markdown documents viewed in zelland's MarkdownPane.
+Collaborative annotations for Markdown documents stored directly within the document source using Loro CRDT for real-time synchronization.
 
 ## Overview
 
-Users can annotate text within Markdown previews. Annotations are stored in **sidecar files** (`<docname>.ann.kdl`) using KDL format, with short anchor references embedded in the Markdown source. Real-time collaboration is handled via **YJS CRDT** sync between the Svelte client and the backend daemon.
+Users can annotate text within Markdown previews. Unlike the previous sidecar approach, annotations and comment threads are stored **directly in the Markdown file** in a hidden-by-default footer section. Real-time collaboration is handled via **Loro CRDT** sync between the Svelte client and the Rust daemon.
 
-## Storage
+## Storage: In-Doc Markdown
 
-### Sidecar File: `<docname>.ann.kdl`
+Annotations are stored using two components: an **inline anchor link** and a **Comments section** at the end of the file.
 
-For `README.md`, the sidecar is `README.ann.kdl`, stored alongside the original file on the remote host.
+### Inline Anchor Link
 
-```kdl
-// README.ann.kdl
-
-ann "k8f2a" {
-    selector {
-        quote "ESP32-S3"
-        prefix "architecture of the "
-        suffix " microcontroller"
-    }
-    thread {
-        comment id="c001" author="njr" created="2026-02-10T14:30:00Z" {
-            body "Should we verify the power draw in deep sleep mode?"
-        }
-        comment id="c002" author="alice" created="2026-02-10T15:12:00Z" {
-            body "Yes - measured at **45uA** in deep sleep. Added to the spec table."
-        }
-    }
-}
-
-ann "m3x9p" {
-    selector {
-        quote "userspace packet loop"
-        prefix "Implement "
-        suffix " in `src-tauri"
-    }
-    thread {
-        comment id="c003" author="njr" created="2026-02-11T09:00:00Z" {
-            body "This is done - see `network.rs`."
-        }
-    }
-}
-```
-
-### Anchor Reference in Markdown
-
-Each annotation has a unique **~5-character alphanumeric ID** (e.g., `k8f2a`). This ID is embedded in the Markdown source as an inline anchor marker using the syntax:
+Annotated text is wrapped in a standard Markdown link pointing to a header ID in the footer:
 
 ```markdown
-The architecture of the [|k8f2a|]ESP32-S3 microcontroller supports dual-core processing.
+The architecture of the [ESP32-S3](#k8f2a) microcontroller supports dual-core processing.
 ```
 
-The `[|ID|]` marker is a zero-width anchor point placed immediately before the annotated text. The `selector.quote` field in the KDL file identifies the extent of highlighted text following the anchor.
+- **Syntax:** `[quoted text](#ID)`
+- **ID:** A unique 5-character alphanumeric ID (e.g., `k8f2a`).
+- **Benefit:** Standard Markdown renderers treat this as a internal document link. External editors can move or edit the text without breaking the reference.
 
-**Why embed in the Markdown?** Pure standoff markup (offset-based) breaks when the file is edited. Embedding a short, stable reference ID means the anchor survives arbitrary edits to surrounding text. The `selector` fields (quote, prefix, suffix) provide a fallback for fuzzy re-anchoring if the marker is accidentally deleted.
+### Footer Section: `# Comments`
 
-### Anchor Resolution Algorithm
+The end of every annotated Markdown file contains a `# Comments` H1 section. Each annotation ID has its own H2 sub-header, followed by a list of comments.
 
-When rendering a Markdown file with annotations:
+```markdown
+... document content ends here ...
 
-1. **Primary:** Scan for `[|ID|]` markers in the source. The annotated range starts immediately after the marker and extends for `len(selector.quote)` characters.
-2. **Fallback (fuzzy):** If the `[|ID|]` marker is missing (e.g., removed by an external editor), use the selector fields:
-   - Find paragraphs matching `prefix + quote + suffix` via fuzzy string matching.
-   - Re-insert the `[|ID|]` marker at the resolved position.
-3. **Orphaned:** If neither primary nor fuzzy resolution succeeds, the annotation is marked as orphaned and displayed in a separate "Unresolved" section.
+# Comments
 
-## Frontend Experience
+## k8f2a
 
-### Rendering Annotated Text
+- 2026-02-10T14:30:00Z njr: Should we verify the power draw in deep sleep mode?
+- 2026-02-10T15:12:00Z alice: Yes - measured at **45uA** in deep sleep.
 
-Anchor text (the `selector.quote` range following a `[|ID|]` marker) is rendered with:
+## m3x9p
 
-- A **blue underline** beneath the anchor text.
-- A **faint blue background highlight** on the text itself.
-- A subtle superscript annotation count badge if the thread has multiple comments.
+- 2026-02-11T09:00:00Z njr: This is done - see `network.rs`.
+```
 
-The Markdown renderer (`marked`) is extended with a custom tokenizer/renderer that:
+- **Header:** `## ID` matches the anchor in the text.
+- **Comment Format:** `- TIMESTAMP author: body`
+- **Body:** Supports inline Markdown (bold, links, etc.).
 
-1. Strips `[|ID|]` markers from visible output.
-2. Wraps the subsequent `quote` text in `<span class="ann-anchor" data-ann-id="ID">...</span>`.
+## Collaboration: Loro CRDT Sync
 
-### Desktop Layout
+### Why Loro?
 
-When annotations exist for the current document:
+[Loro](https://loro.dev) is a high-performance CRDT framework built in Rust. It is selected for zelland due to:
 
-- A **closable right-hand sidebar** appears alongside the MarkdownPane, containing all comment threads ordered by their position in the document (top to bottom).
-- Each thread shows the quoted anchor text as a header, followed by the comment chain.
-- **Clicking an anchor** in the document fast-scrolls the sidebar to the corresponding thread.
-- **Clicking a thread** in the sidebar scrolls the document to the anchor.
-
-**Adding an annotation (desktop):**
-
-1. User selects text in the rendered Markdown.
-2. The sidebar scrolls to the insertion point (between neighboring annotations, ordered by document position).
-3. A reply box appears, pre-filled with the selected text as context.
-4. On submit, a new `ann` node is created in the KDL sidecar with a generated ID, and the `[|ID|]` marker is inserted into the Markdown source.
-
-### Mobile Layout
-
-On mobile, there is no sidebar. Annotations are handled **inline**:
-
-- **Tapping an anchor** expands a comment view directly below the anchor text in the document flow.
-- By default, only the **last comment** in the chain is visible, along with a compact reply box.
-- The reply box expands when tapped. Replies can be submitted or canceled.
-- A "Show earlier" link expands the full chain above the latest reply.
-- A close button collapses the inline view.
-
-### Comment Format
-
-Each comment displays:
-
-- **Author name** (small, muted).
-- **Relative timestamp** (e.g., "2h ago", "3 days ago") as a subtle indicator.
-- **Body** rendered as Markdown (supports inline formatting: bold, italic, code, links).
-
-## Collaboration: YJS CRDT Sync
+- **Shallow Snapshots:** Efficiently handles large document histories by truncating state while preserving mergeability.
+- **First-class Rust & JS support:** Seamless integration between the Tauri/Rust daemon and Svelte/JS frontend.
+- **Fugue Algorithm:** Superior text interleaving prevention compared to Yjs's YATA.
 
 ### Architecture
 
 ```text
   Svelte Client A                    Svelte Client B
        |                                  |
-       |  WebSocket (YJS sync)            |  WebSocket (YJS sync)
+       |  WebSocket (Loro binary sync)    |  WebSocket (Loro binary sync)
        v                                  v
   +--------------------------------------------------+
   |              zlnd (daemon)                       |
   |                                                   |
-  |  YJS Doc (authoritative state)                    |
+  |  Loro Doc (authoritative state)                   |
   |       |                                           |
-  |       +---> Persist to <docname>.ann.kdl          |
+  |       +---> Reify to Markdown (# Comments)        |
   +--------------------------------------------------+
 ```
 
-- The **daemon** hosts a YJS document per annotation file.
-- Svelte clients connect via **WebSocket** to the daemon's YJS sync endpoint.
-- All annotation mutations (add, edit, delete comments; create/remove anchors) are YJS operations.
-- The daemon **persists** the YJS document state to the `.ann.kdl` file on disk periodically and on disconnect.
-- On reconnect or cold start, the daemon **loads** the `.ann.kdl` file and initializes the YJS document.
+### Loro Document Structure
 
-### YJS Document Structure
-
-The YJS document models the annotation state as a `Y.Map` of annotation objects:
+The Loro document models the annotation state using a nested map structure:
 
 ```text
-Y.Doc
-  annotations: Y.Map<string, Y.Map>    // keyed by annotation ID
-    "k8f2a": Y.Map
-      selector: Y.Map { quote, prefix, suffix }
-      thread: Y.Array<Y.Map>           // ordered list of comments
-        [0]: Y.Map { id, author, created, body }
-        [1]: Y.Map { id, author, created, body }
+LoroDoc
+  annotations: Map
+    "k8f2a": List (Comments)
+      [0]: Map { author: "njr", timestamp: "...", body: "..." }
+      [1]: Map { author: "alice", timestamp: "...", body: "..." }
 ```
 
-### Sync Protocol
+### Sync & Persistence
 
-1. Client opens a MarkdownPane with annotations.
-2. Client connects to `ws://<host>:8083/annotations/<docpath>`.
-3. Daemon creates or loads the YJS doc for that file.
-4. Standard YJS WebSocket sync protocol (`y-websocket`) handles state exchange and incremental updates.
-5. Client receives updates and re-renders annotation UI reactively.
+1. **Connection:** Client connects via `ws://<host>:8083/annotations/sync/<filepath>`.
+2. **Cold Start:** Daemon reads the Markdown file, parses the `# Comments` section, and populates the Loro document.
+3. **Delta Sync:** Loro handles incremental updates via binary blobs over WebSockets.
+4. **Reification:** When the Loro document changes, the daemon updates the `# Comments` section in the Markdown file on disk.
 
-### Conflict Resolution
+## Frontend Experience
 
-YJS handles conflicts automatically:
+### Markdown Rendering
 
-- **Concurrent comment additions:** Both appear in the thread (ordered by timestamp).
-- **Concurrent edits to the same comment:** Last-write-wins at the field level (YJS Map semantics).
-- **Concurrent anchor deletion + comment addition:** The new comment attaches to the (now orphaned) annotation, which appears in the "Unresolved" section.
+The `MarkdownPane` uses a custom `marked` extension to process the doc:
 
-## Daemon API
+1. **Highlighting:** Intercepts `[text](#ID)` links. If the ID exists in the annotation state, it renders as an `<span class="ann-highlight">` with a blue underline and background.
+2. **Interception:** Prevents the browser from jumping to the footer when an anchor is clicked. Instead, it scrolls the **Sidebar** to the relevant thread.
+3. **Footer Hiding:** The `# Comments` section is **stripped from the visible preview**. It is strictly used as a data source for the sidebar.
 
-### New Endpoints
+### Annotation Sidebar (Desktop)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/annotations/{filepath}` | Read annotations for a file (KDL or JSON) |
-| `PUT` | `/annotations/{filepath}` | Write/update annotations (used for non-YJS fallback) |
-| `WS` | `/annotations/{filepath}/sync` | YJS WebSocket sync endpoint |
+- Displays all threads ordered by their appearance in the document.
+- **Add Annotation:** User selects text -> "Annotate" -> New ID generated -> Daemon inserts `[text](#ID)` and populates the footer.
 
-### KDL Parsing
+### Mobile Experience
 
-The daemon is written in Rust and uses the `kdl` crate to read/write `.ann.kdl` files. The JS client never parses KDL directly — it works with the YJS document via the sync protocol. The daemon handles the KDL ↔ YJS bridge:
+- No sidebar. Tapping an highlighted link expands a floating bottom sheet or inline card containing the `## ID` thread from the footer.
 
-- **Cold start:** Read `.ann.kdl` → populate `yrs::Doc` with annotation data.
-- **Persistence:** Serialize `yrs::Doc` annotation state → write `.ann.kdl` (debounced, 5s timer + on shutdown).
+## Daemon Implementation (Rust)
 
-## Implementation Components
-
-### Svelte Client
-
-| Component | Purpose |
-|-----------|---------|
-| `AnnotationSidebar.svelte` | Desktop: right-hand panel with threaded comments |
-| `InlineAnnotation.svelte` | Mobile: inline expandable comment view |
-| `AnnotationAnchor.svelte` | Rendered anchor span (blue underline + highlight) |
-| `CommentThread.svelte` | Shared thread UI (list of comments + reply box) |
-| `Comment.svelte` | Single comment (author, timestamp, markdown body) |
-| `lib/annotations.ts` | YJS doc setup, WebSocket provider, reactive state |
-| Custom `marked` extension | Tokenizer for `[|ID|]` markers, renderer for anchor spans |
-
-### Daemon (Rust)
-
-| Component | Purpose |
-|-----------|---------|
-| `store.rs` | KDL serialize/deserialize for `.ann.kdl` files |
-| `yjs.rs` | `yrs::Doc` manager per file, KDL↔YJS bridge |
-| `server.rs` | `/annotations/{filepath}/sync` WebSocket endpoint (`y-sync` protocol) |
-| `anchor.rs` | Fuzzy re-anchoring: re-insert `[|ID|]` markers via prefix/suffix matching |
+- **Loro Integration:** Uses the `loro` crate to manage state.
+- **Markdown Parser:** Uses a line-based parser or `pulldown-cmark` to surgically update the `# Comments` section without corrupting the rest of the document.
+- **Conflict Resolution:** If two users edit the `# Comments` section manually while the daemon is offline, Loro merges the changes on the next start based on the binary history (stored in a small `.zelland/` hidden folder if needed, or derived from the Markdown text).
 
 ## Open Questions
 
-1. **Anchor syntax:** Is `[|ID|]` the right marker syntax? Alternatives:
-   `<!-- ann:ID -->` (HTML comment — invisible in all renderers, but verbose)
-   `[^ID]` (footnote-like — conflicts with actual Markdown footnotes)
-   `{#ID}` (attribute-like — might conflict with some Markdown extensions)
-   `[|ID|]` is visually distinct and unlikely to collide, but is visible as literal text in renderers that don't understand it.
-
-2. **Author identity:** How are comment authors identified?
-   - Username from the SSH session
-   - Bot processes in the future will also be allowed to specify their own name to be used for annotations.
-
-3. **Markdown source mutation:** Adding `[|ID|]` markers modifies the Markdown file. This should happen as soon as the daemon is notified of the creation. (which might have been cached on a disconnected client).
-     How does this interact with version control (git)? Should markers be committed?
-
-4. **Permissions:** Can any connected user:
-   Add annotations to any file? - YES
-   Edit/delete others' comments? - NO
-   Delete entire annotation threads? - NO
-
-5. ~~**KDL library for Go**~~ **Resolved:** Daemon migrated to Rust. Uses the `kdl` crate (well-maintained, idiomatic Rust).
-
-6. **YJS persistence strategy:** How often should the daemon flush YJS state to disk?
-   On a debounced timer (e.g., every 5 seconds) during a session, plus when a client disconnects or when the daemon receives a signal to shutdown. Clients might need to send the date/time of their most recent update to the server up connection/reconnection so the server can work out whether it needs to ask the client to send more annotation history.
-
-7. **Offline / disconnected editing:** If a client is offline:
-   Annotations should be cached locally and synced on reconnect
-
-8. **File watching:** Should the daemon watch `.ann.kdl` files for external edits (e.g., from another tool)? Not yet - we'll assume all edits to the .ann.kdl files are managed by one system-wide instance of this daemon.
-
-9. **Annotation scope:** Are annotations per-project or per-file? Can an annotation reference text across multiple files? Annotations are per-project. But, links can be established between markdown files within a project (e.g. README.md -> DESIGN.md), and annotations can also reference other docs in the current project.
-
-10. **Mobile text selection:** On mobile (Android WebView), selecting text in a rendered Markdown view to create an annotation is done by: Long-press to select, then a floating "Annotate" button
+1. **History Persistence:** Should we store the full Loro binary history in the Markdown file (e.g., in an HTML comment `<!-- loro:snapshot -->`)?
+   - *Proposal:* Store only the reified text in Markdown. Store the Loro binary snapshot in a hidden local cache file on the host (`.<filename>.zelland`) in the same path to ensure fast restarts and robust merging.
+2. **Manual Edits:** What happens if a user deletes a comment line in a standard text editor?
+   - *Behavior:* The daemon will treat this as a deletion in the Loro doc during the next sync/load.
+3. **Link Collisions:** How to distinguish "real" document links to headers from annotation anchors?
+   - *Decision:* Reserve a specific ID pattern (e.g., exactly 5-8 alphanumeric chars)

@@ -17,6 +17,7 @@
     let resizeObserver: ResizeObserver;
     let destroyed = false;
     let isScrolling = false;
+    let mouseReportingEnabled = $state(false);
 
     onMount(() => {
         term = new Terminal({
@@ -68,6 +69,26 @@
         const onWindowResize = () => doFitAndResize();
         window.addEventListener('resize', onWindowResize);
 
+        // Intercept wheel events: if the terminal hasn't requested mouse reporting (like in Zellij's
+        // normal mode), we pipe the wheel directly to Zellij's scroll-up/down actions.
+        let lastScrollTime = 0;
+        terminalElement.addEventListener('wheel', (e) => {
+            if (mouseReportingEnabled) return; // Let xterm.js handle it if Zellij asked for mouse
+
+            e.preventDefault();
+            const now = Date.now();
+            if (now - lastScrollTime < 30) return; // Throttle to ~30 FPS for smooth feel without spam
+            lastScrollTime = now;
+
+            const action = e.deltaY < 0 ? 'scroll-up' : 'scroll-down';
+            appState.runZellijAction(tabId, action);
+        }, { passive: false });
+
+        // Ensure clicking focuses the terminal
+        terminalElement.addEventListener('mousedown', () => {
+            if (term) term.focus();
+        });
+
         term.onData((data) => {
             // Any key press exits scrollback and snaps back to live view
             if (isScrolling) {
@@ -88,21 +109,35 @@
     });
 
     type SshMsg =
-        | { type: 'Viewport'; data: { data: Uint8Array, at_bottom: boolean } }
+        | { type: 'Viewport'; data: { data: Uint8Array, at_bottom: bool, mouse_mode: bool } }
         | { type: 'Closed' };
 
     async function connectSsh() {
         const config = appState.getSshConfig(tabId);
         if (!config) return;
 
+        // Propose initial dimensions if not already set
+        let rows = 24;
+        let cols = 80;
+        if (fitAddon) {
+            const dims = fitAddon.proposeDimensions();
+            if (dims) {
+                rows = dims.rows;
+                cols = dims.cols;
+            }
+        }
+
         const outputChannel = new Channel<SshMsg>();
         outputChannel.onmessage = (msg) => {
             if (destroyed) return;
             if (msg.type === 'Viewport') {
                 // Strategy 1: Replace terminal content with Rust-rendered grid snapshot.
-                // term.clear() + term.write() ensures we only show the current viewport.
                 term.clear();
                 term.write(msg.data.data);
+                
+                // Update frontend state tracking
+                mouseReportingEnabled = msg.data.mouse_mode;
+
                 if (msg.data.at_bottom) {
                     isScrolling = false;
                 }
@@ -112,7 +147,7 @@
         };
 
         try {
-            await invoke('ssh_connect', { tabId, config, channel: outputChannel });
+            await invoke('ssh_connect', { tabId, config, rows, cols, channel: outputChannel });
             if (!destroyed) appState.onSessionConnected(tabId);
         } catch (e) {
             if (!destroyed) appState.onSessionConnectionFailed(tabId, String(e));

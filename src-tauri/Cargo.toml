@@ -1,7 +1,7 @@
 [package]
-name = "tauri-app"
+name = "zelland"
 version = "0.1.0"
-description = "A Tauri App"
+description = "zelland — mobile command center"
 authors = ["you"]
 edition = "2024"
 

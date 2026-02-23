@@ -226,61 +226,61 @@ Some(Payload::Notification(notif)) => {
 }
 ```
 
-### 4.2 Notification tap handler (Android intent)
+### 4.2 Notification tap handler
 
-In `intent.rs`, handle the notification action:
+In `src-tauri/src/intent.rs` (Android) and `src-tauri/src/lib.rs` (Desktop), handle the notification action by emitting a `navigate-to-session` event.
 
-```rust
-// Called from MainActivity.kt when notification is tapped
-#[tauri::command]
-pub fn handle_notification_action(app: AppHandle, payload: String) {
-    if let Ok(nav) = serde_json::from_str::<serde_json::Value>(&payload) {
-        app.emit("navigate-to-session", nav).ok();
-    }
-}
-```
-
-In `app.svelte.ts`, listen for the event and switch tabs:
+In `src/lib/stores/app.svelte.ts`, the listener handles robust payload parsing and automatic session reconnection:
 
 ```typescript
-listen<{ session_name: string; tab_index: number; pane_id: number }>(
-    "navigate-to-session",
-    ({ payload }) => {
-        // Find the session matching payload.session_name
-        const match = sessions.find(s => s.zellijSession === payload.session_name);
-        if (match) {
-            appState.setActiveSession(match.id);
+listen<any>("navigate-to-session", (event) => {
+    const payload = event.payload;
+    let session_name: string | null = null;
+    let tab_index = 0;
+
+    // Handle both stringified JSON (from Actions) and objects (from Intents)
+    if (typeof payload === 'string') {
+        try {
+            const parsed = JSON.parse(payload);
+            session_name = parsed.session_name;
+            tab_index = parsed.tab_index ?? 0;
+        } catch {
+            session_name = payload;
         }
-        // Once attached, send zellij action to focus the right tab/pane
-        if (payload.tab_index > 0) {
-            invoke("ssh_write", {
-                tabId: match?.id,
-                data: encode(`zellij action go-to-tab ${payload.tab_index}\n`),
-            });
+    } else if (payload && typeof payload === 'object') {
+        session_name = payload.session_name;
+        tab_index = payload.tab_index ?? 0;
+    }
+
+    if (session_name) {
+        const session = sessions.find(s => s.zellijSession === session_name);
+        if (session) {
+            // Auto-connect if disconnected
+            if (session.status !== 'connected') {
+                appState.connectSession(session.id);
+            } else {
+                appState.activeSessionId = session.id;
+                if (tab_index > 0) {
+                    // Use a slight timeout to ensure PTY is ready
+                    setTimeout(() => {
+                        const command = `zellij -s ${session.zellijSession} action go-to-tab ${tab_index}`;
+                        invoke("run_remote_command", { config: buildSshConfig(session), command });
+                    }, 500);
+                }
+            }
+            appState.scrollToPane(0); // Ensure terminal pane is visible
         }
     }
-);
+});
 ```
 
-### 4.3 KDE "Focus" action button
+### 4.3 KDE and OS Fallback
 
-On Linux, `tauri-plugin-notification` uses libnotify/D-Bus.  Add a "Focus" action:
+Note: The current version of `tauri-plugin-notification` (v2.x) does not yet support custom action buttons or Rust-side notification event listeners. 
 
-```rust
-// Linux-only: add a clickable action button to the notification
-#[cfg(target_os = "linux")]
-{
-    builder = builder.action("focus", "Focus Terminal");
-}
-```
-
-Handle the action click in a notification event listener.  When "Focus Terminal" is
-clicked, zelland calls `AppHandle::get_webview_window("main")?.set_focus()` to
-bring the window to the front, then emits `navigate-to-session` normally.
-
-libnotify actions are supported by KDE's notification daemon (plasma-workspace
-5.27+) and most GNOME setups via `notify2`.  On environments that don't support
-actions, the click simply opens the app (fallback behaviour).
+- **Focus:** On Linux (KDE), clicking the notification itself will typically focus the application window by default.
+- **Android:** Deep-linking when the app is in the background is handled via the `intent` plugin's `handle_notification_action` command, which emits the `navigate-to-session` event.
+- **Foreground:** When the app is focused, the `agent-notification` event is emitted directly via the WebSocket loop in `daemon.rs`, triggering the in-app `AgentNotificationToast` which provides rich navigation buttons.
 
 ---
 

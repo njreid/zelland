@@ -1,4 +1,4 @@
-use alacritty_terminal::term::{Term, Config};
+use alacritty_terminal::term::{Term, Config, TermMode};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
@@ -60,6 +60,19 @@ impl TerminalSession {
         self.dirty
     }
 
+    pub fn get_mouse_mode(&self) -> bool {
+        self.term.mode().intersects(
+            TermMode::MOUSE_REPORT_CLICK | 
+            TermMode::MOUSE_DRAG | 
+            TermMode::MOUSE_MOTION
+        )
+    }
+
+    pub fn get_cursor_pos(&self) -> (u16, u16) {
+        let cursor = self.term.grid().cursor.point;
+        (cursor.column.0 as u16, cursor.line.0 as u16)
+    }
+
     /// Render the currently-visible viewport as ANSI escape sequences.
     /// Reuses an internal buffer to minimize allocations.
     pub fn render_viewport(&mut self) -> &[u8] {
@@ -104,6 +117,14 @@ impl TerminalSession {
             let mut buf = [0u8; 4];
             self.render_buf.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
         }
+
+        // Place the cursor at its actual position before sending the snapshot
+        let (column, line) = self.get_cursor_pos();
+        self.render_buf.extend_from_slice(b"\x1b[");
+        push_u8(&mut self.render_buf, (line as u8).wrapping_add(1));
+        self.render_buf.push(b';');
+        push_u8(&mut self.render_buf, (column as u8).wrapping_add(1));
+        self.render_buf.push(b'H');
 
         self.render_buf.extend_from_slice(b"\x1b[0m"); // SGR reset
         &self.render_buf

@@ -6,7 +6,6 @@ use tracing::{debug, error, info, warn};
 
 use crate::assets::AssetManager;
 use crate::proto::zelland::{self, envelope::Payload, Envelope, KeepAlive};
-use crate::store;
 
 /// Broadcast channel capacity for WebSocket client fan-out.
 const BROADCAST_CAPACITY: usize = 256;
@@ -101,12 +100,9 @@ pub async fn handle_ws(
 
 async fn handle_message(
     envelope: &Envelope,
-    asset_manager: &AssetManager,
+    _asset_manager: &AssetManager,
 ) {
     match &envelope.payload {
-        Some(Payload::Annotation(action)) => {
-            handle_annotation(action, asset_manager).await;
-        }
         Some(Payload::ZellijAction(action)) => {
             handle_zellij_action(action).await;
         }
@@ -141,51 +137,11 @@ async fn handle_zellij_action(action: &zelland::ZellijAction) {
     }
 }
 
-async fn handle_annotation(
-    action: &zelland::AnnotationAction,
-    asset_manager: &AssetManager,
-) {
-    let file_path = asset_manager
-        .resolve_to_string(&action.file_path)
-        .await
-        .unwrap_or_else(|| action.file_path.clone());
-
-    let data = match &action.data {
-        Some(d) => d,
-        None => {
-            warn!("Annotation action missing data");
-            return;
-        }
-    };
-
-    // Derive KDL path from file path
-    let kdl_path = if let Some(pos) = file_path.rfind('.') {
-        format!("{}.kdl", &file_path[..pos])
-    } else {
-        format!("{}.kdl", file_path)
-    };
-
-    let ann = store::Annotation {
-        id: data.id.clone(),
-        user: String::new(),
-        timestamp: data.timestamp,
-        context_hash: data.context_hash.clone(),
-        target_text: data.target_text.clone(),
-        body: data.body.clone(),
-    };
-
-    if let Err(e) = store::append_annotation(std::path::Path::new(&kdl_path), ann) {
-        error!("Failed to save annotation to {}: {}", kdl_path, e);
-    } else {
-        info!("Saved annotation to {}", kdl_path);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::proto::zelland::{
-        self, AnnotationAction, AnnotationData, ClientStatus, OpenViewRequest,
+        self, ClientStatus, OpenViewRequest,
     };
 
     #[test]
@@ -227,32 +183,6 @@ mod tests {
             Some(Payload::OpenView(req)) => {
                 assert_eq!(req.asset_id, "abc123");
                 assert_eq!(req.file_type, zelland::open_view_request::FileType::Markdown as i32);
-            }
-            _ => panic!("Wrong payload type"),
-        }
-    }
-
-    #[test]
-    fn test_protobuf_roundtrip_annotation() {
-        let envelope = Envelope {
-            payload: Some(Payload::Annotation(AnnotationAction {
-                r#type: zelland::annotation_action::ActionType::Create as i32,
-                file_path: "test.md".into(),
-                data: Some(AnnotationData {
-                    id: "ann-1".into(),
-                    target_text: "hello".into(),
-                    context_hash: "sha256:abc".into(),
-                    body: "note".into(),
-                    timestamp: 999,
-                }),
-            })),
-        };
-        let data = envelope.encode_to_vec();
-        let decoded = Envelope::decode(&data[..]).unwrap();
-        match decoded.payload {
-            Some(Payload::Annotation(action)) => {
-                assert_eq!(action.file_path, "test.md");
-                assert_eq!(action.data.unwrap().body, "note");
             }
             _ => panic!("Wrong payload type"),
         }

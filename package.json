@@ -27,14 +27,12 @@
     "@xterm/xterm": "^6.0.0",
     "clsx": "^2.1.1",
     "highlight.js": "^11.11.1",
-    "lib0": "^0.2.117",
+    "loro-crdt": "^1.10.6",
     "lucide-svelte": "^0.563.0",
     "marked": "^17.0.1",
     "marked-highlight": "^2.2.3",
     "mermaid": "^11.12.3",
-    "tailwind-merge": "^3.4.0",
-    "y-protocols": "^1.0.7",
-    "yjs": "^13.6.29"
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",

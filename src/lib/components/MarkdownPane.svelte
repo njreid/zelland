@@ -7,14 +7,13 @@
     import mermaid from 'mermaid';
     import 'highlight.js/styles/tokyo-night-dark.css';
     import { createAnnotationManager } from '$lib/annotations.svelte';
-    import { markedAnnotationExtension, highlightAnnotations, getAnnotationOrder } from '$lib/marked-annotations';
+    import { createMarkedAnnotationExtension, getAnnotationOrder } from '$lib/marked-annotations';
     import AnnotationSidebar from './AnnotationSidebar.svelte';
     import AnnotationForm from './AnnotationForm.svelte';
     import { MessageSquareText } from 'lucide-svelte';
     import { platform } from '@tauri-apps/plugin-os';
 
-    // Register extensions once
-    marked.use(markedAnnotationExtension);
+    // Base marked setup (code highlighting, mermaid)
     marked.use({
         renderer: {
             code(token) {
@@ -31,12 +30,20 @@
 
     let { filename } = $props<{ filename: string }>();
     let content = $state('');
-    let html = $derived(content ? marked.parse(content) as string : '');
+    
+    const manager = createAnnotationManager();
+
+    // The extension depends on the current annotations
+    let html = $derived.by(() => {
+        if (!content) return '';
+        // Create a one-off extension for this render to ensure it has latest annotations
+        const ext = createMarkedAnnotationExtension(() => manager.annotations);
+        return marked.use(ext).parse(content) as string;
+    });
+
     let paneEl: HTMLDivElement | undefined = $state();
     let isDesktop = $state(false);
     let annotationOrder = $state<string[]>([]);
-
-    const manager = createAnnotationManager();
 
     // Derived sorted annotations based on document order
     let orderedAnnotations = $derived.by(() => {
@@ -171,35 +178,41 @@
         }, 50);
     }
 
+    function randomId(len: number): string {
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        const arr = new Uint8Array(len);
+        crypto.getRandomValues(arr);
+        for (const b of arr) {
+            result += chars[b % chars.length];
+        }
+        return result;
+    }
+
     async function handleCreate(body: string) {
         if (!selectionInfo) return;
         const author = getAuthor();
-        const annId = manager.createAnnotation(
-            selectionInfo.quote,
-            selectionInfo.prefix,
-            selectionInfo.suffix,
-            author,
-            body || undefined
-        );
+        const annId = randomId(5);
 
-        if (annId) {
-            // Also mutate the source file on the server to include the marker
-            const info = getActiveSessionInfo();
-            if (info) {
-                try {
-                    const daemonUrl = `http://${info.hostAddress}:8083`;
-                    const path = info.filepath;
-                    await invoke("daemon_mutate_file", {
-                        url: daemonUrl,
-                        path,
-                        annId,
-                        quote: selectionInfo.quote,
-                        prefix: selectionInfo.prefix,
-                        suffix: selectionInfo.suffix
-                    });
-                } catch (e) {
-                    console.error("Failed to mutate source file:", e);
-                }
+        const info = getActiveSessionInfo();
+        if (info) {
+            try {
+                const daemonUrl = `http://${info.hostAddress}:8083`;
+                const path = info.filepath;
+                await invoke("daemon_annotate_file", {
+                    url: daemonUrl,
+                    path,
+                    annId,
+                    quote: selectionInfo.quote,
+                    prefix: selectionInfo.prefix,
+                    author,
+                    body
+                });
+                
+                // Reload content to show the new anchor
+                await loadContent();
+            } catch (e) {
+                console.error("Failed to annotate source file:", e);
             }
         }
 
@@ -242,6 +255,14 @@
             if (href.startsWith('#')) {
                 e.preventDefault();
                 const id = href.slice(1);
+                
+                // Is it an annotation?
+                if (manager.annotations.some(a => a.id === id)) {
+                    activeAnnotationId = id;
+                    if (!sidebarOpen) sidebarOpen = true;
+                    return;
+                }
+
                 const targetEl = paneEl?.querySelector(`[id="${id}"]`);
                 if (targetEl) {
                     targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -319,59 +340,43 @@
         }
     });
 
-    let lastHtml = '';
-
-    // Highlight annotations and extract TOC after HTML renders
+    // Extract TOC and handle Mermaid after HTML renders
     $effect(() => {
         const _html = html;
-        const _anns = manager.annotations;
-        const _size = appState.markdownFontSize;
-        const _weight = appState.markdownFontWeight;
-        console.log(`MarkdownPane: highlighting/styling updated (size=${_size}, weight=${_weight})`);
-
         if (paneEl && _html) {
             requestAnimationFrame(async () => {
                 if (!paneEl) return;
                 
-                // Highlight annotations (needs to run even if html didn't change, e.g. if annotations changed)
-                if (_anns.length > 0) {
-                    highlightAnnotations(paneEl, _anns);
-                    annotationOrder = getAnnotationOrder(paneEl);
-                }
+                // Track annotation order in DOM
+                annotationOrder = getAnnotationOrder(paneEl);
 
-                // Only run things that depend strictly on HTML content if it changed
-                if (_html !== lastHtml) {
-                    lastHtml = _html;
+                const headings = Array.from(
+                    paneEl.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]')
+                );
+                tocItems = headings
+                    .map(h => ({
+                        id: h.id,
+                        text: h.textContent?.trim() ?? '',
+                        level: parseInt(h.tagName[1], 10)
+                    }))
+                    .filter(h => h.text);
+                updateActiveToc();
 
-                    const headings = Array.from(
-                        paneEl.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]')
-                    );
-                    tocItems = headings
-                        .map(h => ({
-                            id: h.id,
-                            text: h.textContent?.trim() ?? '',
-                            level: parseInt(h.tagName[1], 10)
-                        }))
-                        .filter(h => h.text);
-                    updateActiveToc();
-
-                    // Run Mermaid diagrams
-                    try {
-                        const mermaidNodes = paneEl.querySelectorAll('.mermaid');
-                        if (mermaidNodes.length > 0) {
-                            await mermaid.run({
-                                nodes: Array.from(mermaidNodes) as HTMLElement[]
-                            });
-                        }
-                    } catch (e) {
-                        console.error('Mermaid error:', e);
+                // Run Mermaid diagrams
+                try {
+                    const mermaidNodes = paneEl.querySelectorAll('.mermaid');
+                    if (mermaidNodes.length > 0) {
+                        await mermaid.run({
+                            nodes: Array.from(mermaidNodes) as HTMLElement[]
+                        });
                     }
+                } catch (e) {
+                    console.error('Mermaid error:', e);
                 }
             });
         } else if (!_html) {
             tocItems = [];
             activeTocId = null;
-            lastHtml = '';
         }
     });
 </script>
@@ -462,6 +467,7 @@
         </button>
     {/if}
 </div>
+
 
 <style>
     .mdpane-root {

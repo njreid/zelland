@@ -6036,53 +6036,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-app"
-version = "0.1.0"
-dependencies = [
- "alacritty_terminal",
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "ed25519-dalek",
- "futures-util",
- "glib",
- "gotatun",
- "gtk",
- "ipnetwork",
- "jni",
- "log",
- "openssl",
- "prost",
- "prost-build",
- "rand 0.8.5",
- "reqwest 0.12.28",
- "russh",
- "russh-keys",
- "serde",
- "serde_bytes",
- "serde_json",
- "ssh-key",
- "tauri",
- "tauri-build",
- "tauri-plugin-haptics",
- "tauri-plugin-log",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-os",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-store",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "uuid",
- "webkit2gtk",
- "zeroize",
-]
-
-[[package]]
 name = "tauri-build"
 version = "2.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8107,6 +8060,53 @@ dependencies = [
  "serde",
  "winnow 0.7.14",
  "zvariant",
+]
+
+[[package]]
+name = "zelland"
+version = "0.1.0"
+dependencies = [
+ "alacritty_terminal",
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "ed25519-dalek",
+ "futures-util",
+ "glib",
+ "gotatun",
+ "gtk",
+ "ipnetwork",
+ "jni",
+ "log",
+ "openssl",
+ "prost",
+ "prost-build",
+ "rand 0.8.5",
+ "reqwest 0.12.28",
+ "russh",
+ "russh-keys",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "ssh-key",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-haptics",
+ "tauri-plugin-log",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-os",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-store",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "uuid",
+ "webkit2gtk",
+ "zeroize",
 ]
 
 [[package]]
