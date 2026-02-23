@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use tracing::{error, info};
 
 use crate::handlers::utils::resolve_filepath;
-use crate::proto::zelland::{self, envelope::Payload, Envelope, OpenViewRequest};
+use crate::proto::zelland::{self, envelope::Payload, Envelope, NavigationTarget, Notification, NotificationSource, OpenViewRequest};
 use crate::server::AppState;
 use crate::watcher::WatchCommand;
 
@@ -29,6 +29,48 @@ pub async fn trigger_md(
     Json(req): Json<TriggerRequest>,
 ) -> Result<String, (StatusCode, String)> {
     generic_trigger(state, req, zelland::open_view_request::FileType::Markdown).await
+}
+
+#[derive(Deserialize)]
+pub struct NotifyRequest {
+    pub title: String,
+    pub body: String,
+    pub question: Option<String>,
+    pub session_name: Option<String>,
+    pub tab_index: Option<u32>,
+    pub pane_id: Option<u32>,
+    pub source: Option<String>,
+}
+
+pub async fn trigger_notify(
+    State(state): State<AppState>,
+    Json(req): Json<NotifyRequest>,
+) -> StatusCode {
+    let target = req.session_name.as_ref().map(|s| NavigationTarget {
+        session_name: s.clone(),
+        tab_index: req.tab_index.unwrap_or(0),
+        pane_id: req.pane_id.unwrap_or(0),
+    });
+
+    let source = match req.source.as_deref() {
+        Some("claude_code")   => NotificationSource::ClaudeCode,
+        Some("gemini_cli")    => NotificationSource::GeminiCli,
+        Some("zellij_plugin") => NotificationSource::ZellijPlugin,
+        _                     => NotificationSource::User,
+    } as i32;
+
+    let envelope = Envelope {
+        payload: Some(Payload::Notification(Notification {
+            title: req.title.clone(),
+            body: req.body.clone(),
+            target,
+            question: req.question.unwrap_or_default(),
+            source,
+        })),
+    };
+    state.registry.broadcast(&envelope);
+    info!("Sent notification: {}", req.title);
+    StatusCode::OK
 }
 
 async fn generic_trigger(

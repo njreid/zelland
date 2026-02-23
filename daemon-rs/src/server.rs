@@ -32,6 +32,7 @@ pub fn build_router(state: AppState) -> Router {
     let trigger_routes = Router::new()
         .route("/show", post(handlers::trigger::trigger_show))
         .route("/md", post(handlers::trigger::trigger_md))
+        .route("/notify", post(handlers::trigger::trigger_notify))
         .layer(middleware::from_fn(loopback_guard));
 
     Router::new()

@@ -1,4 +1,5 @@
 pub mod ssh;
+pub mod terminal;
 pub mod daemon;
 pub mod intent;
 pub mod network;
@@ -45,6 +46,11 @@ async fn ssh_write(state: State<'_, SshManager>, tab_id: String, data: Vec<u8>) 
 #[tauri::command]
 async fn ssh_resize(state: State<'_, SshManager>, tab_id: String, rows: u32, cols: u32) -> Result<(), String> {
     state.resize(tab_id, rows, cols).await
+}
+
+#[tauri::command]
+async fn ssh_scroll(state: State<'_, SshManager>, tab_id: String, delta: i32) -> Result<(), String> {
+    state.scroll(tab_id, delta).await
 }
 
 #[tauri::command]
@@ -155,7 +161,13 @@ pub fn run() {
         .manage(SshManager::new())
         .manage(network::NetworkManager::new())
         .manage(DaemonManager::new())
-        .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin(tauri_plugin_log::Builder::new()
+            .level(log::LevelFilter::Info) // Default to Info for app
+            .level_for("alacritty_terminal", log::LevelFilter::Warn)
+            .level_for("russh", log::LevelFilter::Warn)
+            .level_for("tokio_tungstenite", log::LevelFilter::Warn)
+            .level_for("tungstenite", log::LevelFilter::Warn)
+            .build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
@@ -169,6 +181,7 @@ pub fn run() {
             ssh_disconnect,
             ssh_write,
             ssh_resize,
+            ssh_scroll,
             run_remote_command,
             daemon_connect,
             daemon_run_zellij_action,

@@ -73,12 +73,36 @@ impl DaemonManager {
                             // Handle payloads without moving the envelope
                             match &envelope.payload {
                                 Some(Payload::Notification(notif)) => {
-                                    info!("Received notification from daemon: {}", notif.title);
+                                    info!("Received notification: {} (source={})", notif.title, notif.source);
+
+                                    // OS notification
                                     let _ = app_handle.notification()
                                         .builder()
-                                        .title(notif.title.clone())
-                                        .body(notif.body.clone())
+                                        .title(&notif.title)
+                                        .body(if !notif.question.is_empty() { &notif.question } else { &notif.body })
                                         .show();
+
+                                    // In-app event with full context
+                                    #[derive(Serialize, Clone)]
+                                    struct AgentNotifEvent {
+                                        title: String,
+                                        body: String,
+                                        question: String,
+                                        source: i32,
+                                        session_name: Option<String>,
+                                        tab_index: u32,
+                                        pane_id: u32,
+                                    }
+                                    let ev = AgentNotifEvent {
+                                        title: notif.title.clone(),
+                                        body: notif.body.clone(),
+                                        question: notif.question.clone(),
+                                        source: notif.source,
+                                        session_name: notif.target.as_ref().map(|t| t.session_name.clone()),
+                                        tab_index: notif.target.as_ref().map(|t| t.tab_index).unwrap_or(0),
+                                        pane_id: notif.target.as_ref().map(|t| t.pane_id).unwrap_or(0),
+                                    };
+                                    let _ = app_handle.emit("agent-notification", ev);
                                 }
                                 _ => {
                                     // Forward other events to frontend

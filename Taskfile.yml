@@ -147,3 +147,39 @@ tasks:
     cmds:
       - ./scripts/push_emu.sh
       - task: "push:android"
+
+  "install":
+    desc: "Build and install zelland, zn, and zlnd to ~/bin; create/update zlnd systemd user service"
+    cmds:
+      - task: "build:linux"
+      - mkdir -p ~/bin
+      - cp build/zn ~/bin/zn
+      - cp build/zlnd ~/bin/zlnd
+      - cp src-tauri/target/release/zelland ~/bin/zelland
+      - chmod +x ~/bin/zn ~/bin/zlnd ~/bin/zelland
+      - echo "✓ Binaries installed to ~/bin"
+      - |
+        SERVICE_FILE="$HOME/.config/systemd/user/zlnd.service"
+        mkdir -p "$(dirname "$SERVICE_FILE")"
+        if systemctl --user cat zlnd.service > /dev/null 2>&1; then
+          systemctl --user restart zlnd.service
+          echo "✓ zlnd service restarted with updated binary"
+        else
+          {
+            echo '[Unit]'
+            echo 'Description=zelland daemon (zlnd)'
+            echo 'After=network.target'
+            echo ''
+            echo '[Service]'
+            echo 'ExecStart=%h/bin/zlnd'
+            echo 'Restart=on-failure'
+            echo 'RestartSec=5'
+            echo ''
+            echo '[Install]'
+            echo 'WantedBy=default.target'
+          } > "$SERVICE_FILE"
+          systemctl --user daemon-reload
+          systemctl --user enable zlnd.service
+          systemctl --user start zlnd.service
+          echo "✓ zlnd service installed and started"
+        fi

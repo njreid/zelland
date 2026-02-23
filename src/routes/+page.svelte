@@ -10,6 +10,7 @@
     import { Menu, Terminal as TerminalIcon } from 'lucide-svelte';
     import type { DaemonRecentSession } from '$lib/stores/app.svelte';
     import { platform } from '@tauri-apps/plugin-os';
+    import AgentNotificationToast from '$lib/components/AgentNotificationToast.svelte';
 
     let sidebarOpen = $state(false);
     let isLinux = $state(false);
@@ -174,6 +175,8 @@
             <VirtualKeyboard onToggleSidebar={toggleSidebar} />
         </div>
     {/if}
+
+    <AgentNotificationToast />
 </main>
 
 <style>

@@ -23,6 +23,19 @@ enum Commands {
         /// Markdown file path
         file: String,
     },
+    /// Send a notification to connected clients
+    Notify {
+        /// Notification title
+        title: String,
+        /// Notification body
+        body: String,
+        /// The specific question/blocker (optional)
+        #[arg(long)]
+        question: Option<String>,
+        /// Source tag: user | claude_code | gemini_cli | zellij_plugin
+        #[arg(long, default_value = "user")]
+        source: String,
+    },
 }
 
 #[tokio::main]
@@ -37,6 +50,28 @@ async fn main() {
         Commands::Md { file } => {
             trigger(&base_url, "md", &file).await;
         }
+        Commands::Notify { title, body, question, source } => {
+            let payload = serde_json::json!({
+                "title": title,
+                "body": body,
+                "question": question,
+                "session_name": std::env::var("ZELLIJ_SESSION_NAME").ok(),
+                "tab_index": std::env::var("ZELLIJ_TAB_INDEX").ok()
+                    .and_then(|v| v.parse::<u32>().ok()),
+                "pane_id": std::env::var("ZELLIJ_PANE_ID").ok()
+                    .and_then(|v| v.parse::<u32>().ok()),
+                "source": source,
+            });
+            trigger_json(&base_url, "notify", &payload).await;
+        }
+    }
+}
+
+async fn trigger_json(base_url: &str, action: &str, payload: &serde_json::Value) {
+    let url = format!("{}/api/v1/trigger/{}", base_url, action);
+    let client = reqwest::Client::new();
+    if let Err(e) = client.post(&url).json(payload).send().await {
+        eprintln!("Failed to send notification: {}", e);
     }
 }
 

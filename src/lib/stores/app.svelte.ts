@@ -30,6 +30,16 @@ export interface DaemonRecentSession {
     readmeExcerpt?: string;
 }
 
+export interface AgentNotification {
+    title: string;
+    body: string;
+    question: string;
+    source: number;  // NotificationSource int: 0=User, 1=ClaudeCode, 2=GeminiCli, 3=ZellijPlugin
+    session_name: string | null;
+    tab_index: number;
+    pane_id: number;
+}
+
 export interface Session {
     id: string;
     label: string;
@@ -66,6 +76,7 @@ function createAppState() {
     let sshKeys = $state<any[]>([]);
     let daemonConnected = $state(false);
     let daemonRecentSessions = $state<DaemonRecentSession[]>([]);
+    let lastAgentNotification = $state<AgentNotification | null>(null);
 
     // --- Derived ---
     const activeSession = $derived(
@@ -233,6 +244,11 @@ function createAppState() {
                 });
             }
         });
+
+        listen<AgentNotification>("agent-notification", ({ payload }) => {
+            lastAgentNotification = payload;
+            log(`Agent notification: ${payload.title}`);
+        });
     }
 
     init();
@@ -261,8 +277,24 @@ function createAppState() {
         get viewUpdateTrigger() { return viewUpdateTrigger; },
         get daemonConnected() { return daemonConnected; },
         get daemonRecentSessions() { return daemonRecentSessions; },
+        get lastAgentNotification() { return lastAgentNotification; },
 
         // Methods
+        async navigateToSession(zellijSessionName: string, tabIndex: number) {
+            const session = sessions.find(s => s.zellijSession === zellijSessionName);
+            if (!session) return;
+            if (session.status !== 'connected') {
+                this.connectSession(session.id);
+            } else {
+                activeSessionId = session.id;
+                if (tabIndex > 0) {
+                    await this.runZellijAction(session.id, `go-to-tab ${tabIndex}`);
+                }
+            }
+        },
+
+        dismissAgentNotification() { lastAgentNotification = null; },
+
         scrollToPane(index: number) { navigationTrigger = index; },
         
         openMarkdownFile(filename: string) {
@@ -488,8 +520,12 @@ function createAppState() {
             this.connectSession(sessionId);
         },
 
-        writeInput(sessionId: string, data: number[]) {
+        writeInput(sessionId: string, data: Uint8Array | number[]) {
             invoke("ssh_write", { tabId: sessionId, data }).catch(() => {});
+        },
+
+        scrollTerminal(sessionId: string, delta: number) {
+            invoke("ssh_scroll", { tabId: sessionId, delta }).catch(() => {});
         },
 
         async runZellijAction(sessionId: string, action: string) {

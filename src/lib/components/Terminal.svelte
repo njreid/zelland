@@ -10,12 +10,13 @@
     import { Channel } from '@tauri-apps/api/core';
 
     let { tabId } = $props<{ tabId: string }>();
-    
+
     let terminalElement: HTMLDivElement;
     let term: Terminal;
     let fitAddon: FitAddon;
     let resizeObserver: ResizeObserver;
     let destroyed = false;
+    let isScrolling = false;
 
     onMount(() => {
         term = new Terminal({
@@ -47,7 +48,7 @@
         } catch {
             term.loadAddon(new CanvasAddon());
         }
-        
+
         function doFitAndResize() {
             if (terminalElement.clientWidth > 0 && terminalElement.clientHeight > 0) {
                 fitAddon.fit();
@@ -68,8 +69,13 @@
         window.addEventListener('resize', onWindowResize);
 
         term.onData((data) => {
+            // Any key press exits scrollback and snaps back to live view
+            if (isScrolling) {
+                isScrolling = false;
+                appState.scrollTerminal(tabId, 0); // 0 = snap to live
+            }
             const bytes = new TextEncoder().encode(data);
-            appState.writeInput(tabId, Array.from(bytes));
+            appState.writeInput(tabId, bytes);
         });
 
         // Kick off the SSH connection in the background — doesn't block mount.
@@ -81,7 +87,9 @@
         };
     });
 
-    type SshMsg = { type: 'Output'; data: string } | { type: 'Closed' };
+    type SshMsg =
+        | { type: 'Viewport'; data: { data: Uint8Array, at_bottom: boolean } }
+        | { type: 'Closed' };
 
     async function connectSsh() {
         const config = appState.getSshConfig(tabId);
@@ -90,9 +98,14 @@
         const outputChannel = new Channel<SshMsg>();
         outputChannel.onmessage = (msg) => {
             if (destroyed) return;
-            if (msg.type === 'Output') {
-                const bin = atob(msg.data);
-                term.write(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+            if (msg.type === 'Viewport') {
+                // Strategy 1: Replace terminal content with Rust-rendered grid snapshot.
+                // term.clear() + term.write() ensures we only show the current viewport.
+                term.clear();
+                term.write(msg.data.data);
+                if (msg.data.at_bottom) {
+                    isScrolling = false;
+                }
             } else if (msg.type === 'Closed') {
                 appState.onSessionClosed(tabId);
             }
@@ -127,7 +140,7 @@
                 term.options.fontWeight = appState.terminalFontWeight as any;
                 term.refresh(0, term.rows - 1);
             }
-            
+
             // Wait a bit for MOSH/PTY to stabilize
             setTimeout(() => {
                 if (terminalElement.clientWidth > 0 && terminalElement.clientHeight > 0) {

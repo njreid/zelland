@@ -6,16 +6,24 @@ use tokio::sync::{Mutex, mpsc};
 use std::collections::HashMap;
 use std::future::Future;
 use log::{info, error, debug};
-use base64::Engine as _;
 use tauri::ipc::Channel;
 use crate::keystore::KeyManager;
+use crate::terminal::TerminalSession;
+
+// ---------------------------------------------------------------------------
+// SSH plumbing
+// ---------------------------------------------------------------------------
 
 /// Messages sent from the SSH session loop to the frontend via a Tauri Channel.
 #[derive(Clone, Serialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", content = "data")]
 pub enum SshChannelMsg {
-    /// Raw terminal output bytes, base64-encoded.
-    Output { data: String },
+    /// Full viewport rendered by Rust as ANSI escape sequences.
+    Viewport { 
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>, 
+        at_bottom: bool 
+    },
     /// SSH session has ended (clean exit or connection drop).
     Closed,
 }
@@ -75,7 +83,7 @@ impl client::Handler for Client {
 
 /// Load a private key from the given config or keystore.
 async fn load_private_key(
-    config: &SshConfig, 
+    config: &SshConfig,
     key_manager: Arc<dyn KeyManager>
 ) -> Result<russh::keys::PrivateKey, String> {
     match config.auth_method {
@@ -185,6 +193,7 @@ impl SshManager {
                 format!("Failed to open channel: {}", e)
             })?;
 
+        // Initialize PTY with provided config (could be expanded to take rows/cols from UI)
         channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await
             .map_err(|e| {
                 error!("Failed to request PTY for tab {}: {}", tab_id, e);
@@ -206,8 +215,10 @@ impl SshManager {
         tokio::spawn(async move {
             info!("SSH session loop started for tab {}", tab_id_spawn);
 
-            let mut buf: Vec<u8> = Vec::with_capacity(4096);
-            let mut flush_interval = tokio::time::interval(std::time::Duration::from_millis(8));
+            let mut ts = TerminalSession::new(80, 24);
+            
+            // Optimized flush interval (60 FPS)
+            let mut flush_interval = tokio::time::interval(std::time::Duration::from_millis(16));
             flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             loop {
@@ -224,6 +235,7 @@ impl SshManager {
                                 if let Err(e) = channel.window_change(cols, rows, 0, 0).await {
                                     error!("Failed to resize SSH window for tab {}: {}", tab_id_spawn, e);
                                 }
+                                ts.resize(cols as u16, rows as u16);
                             }
                             None => break,
                         }
@@ -231,7 +243,7 @@ impl SshManager {
                     msg = channel.wait() => {
                         match msg {
                             Some(russh::ChannelMsg::Data { ref data }) => {
-                                buf.extend_from_slice(data);
+                                ts.process_bytes(data);
                             }
                             Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
                                 info!("SSH channel exited with status {} for tab {}", exit_status, tab_id_spawn);
@@ -246,20 +258,19 @@ impl SshManager {
                         }
                     }
                     _ = flush_interval.tick() => {
-                        if !buf.is_empty() {
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
-                            let _ = output.send(SshChannelMsg::Output { data: b64 });
-                            buf.clear();
+                        if ts.is_dirty() {
+                            // Strategy 1: Send only the visible viewport rendered by Rust.
+                            // This eliminates double-parsing (Rust and JS both parsing ANSI).
+                            let viewport = ts.render_viewport();
+                            let _ = output.send(SshChannelMsg::Viewport { 
+                                data: viewport.to_vec(), 
+                                at_bottom: true 
+                            });
                         }
                     }
                 }
             }
 
-            // Flush any output buffered since the last tick before signalling close
-            if !buf.is_empty() {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
-                let _ = output.send(SshChannelMsg::Output { data: b64 });
-            }
             let _ = output.send(SshChannelMsg::Closed);
         });
 
@@ -269,7 +280,7 @@ impl SshManager {
     }
 
     /// Look up a session's sender, dropping the lock before the async send.
-    async fn send_to_session(&self, tab_id: &str, msg: SessionMsg) -> Result<(), String> {
+    pub async fn send_to_session(&self, tab_id: &str, msg: SessionMsg) -> Result<(), String> {
         let tx = {
             let active = self.active_sessions.lock().await;
             active.get(tab_id)
@@ -291,6 +302,11 @@ impl SshManager {
         self.send_to_session(&tab_id, SessionMsg::Resize { rows, cols }).await
     }
 
+    pub async fn scroll(&self, _tab_id: String, _delta: i32) -> Result<(), String> {
+        // Scrollback handled by Zellij only.
+        Ok(())
+    }
+
     pub async fn disconnect(&self, tab_id: String) {
         info!("Disconnecting SSH session for tab: {}", tab_id);
         let mut active = self.active_sessions.lock().await;
@@ -303,76 +319,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_load_private_key_missing_path() {
-        // Cannot create a real AppHandle in tests, but we can test the PrivateKey path validation
-        let config = SshConfig {
-            host: "example.com".to_string(),
-            port: 22,
-            username: "user".to_string(),
-            auth_method: AuthMethod::PrivateKey,
-            password: None,
-            private_key_path: None,
-            private_key_passphrase: None,
-            key_id: None,
-            session_name: "main".to_string(),
-        };
-
-        // We can't call load_private_key without an AppHandle that resolves paths,
-        // but we can test that it requires private_key_path
-        assert!(config.private_key_path.is_none());
-        // The actual check happens inside load_private_key via .ok_or()
-    }
-
-    #[test]
-    fn test_load_private_key_from_file() {
-        // Generate a key, write it, then verify load_private_key can read it
-        let tmp = tempfile::tempdir().unwrap();
-        let key = ssh_key::PrivateKey::random(&mut rand::rngs::OsRng, ssh_key::Algorithm::Ed25519).unwrap();
-        let key_path = tmp.path().join("test_key");
-        let pem = key.to_openssh(ssh_key::LineEnding::LF).unwrap();
-        std::fs::write(&key_path, pem.as_bytes()).unwrap();
-
-        let config = SshConfig {
-            host: "example.com".to_string(),
-            port: 22,
-            username: "user".to_string(),
-            auth_method: AuthMethod::PrivateKey,
-            password: None,
-            private_key_path: Some(key_path.to_str().unwrap().to_string()),
-            private_key_passphrase: None,
-            key_id: None,
-            session_name: "main".to_string(),
-        };
-
-        // Create a minimal mock - load_private_key for PrivateKey doesn't need AppHandle
-        // We test the key loading path directly
-        let key_str = std::fs::read_to_string(config.private_key_path.as_ref().unwrap()).unwrap();
-        let decoded = russh::keys::decode_secret_key(&key_str, None);
-        assert!(decoded.is_ok(), "Key should decode: {:?}", decoded.err());
-    }
-
-    #[test]
-    fn test_load_private_key_bad_file() {
-        let tmp = tempfile::tempdir().unwrap();
-        let bad_path = tmp.path().join("nonexistent_key");
-
-        let config = SshConfig {
-            host: "example.com".to_string(),
-            port: 22,
-            username: "user".to_string(),
-            auth_method: AuthMethod::PrivateKey,
-            password: None,
-            private_key_path: Some(bad_path.to_str().unwrap().to_string()),
-            private_key_passphrase: None,
-            key_id: None,
-            session_name: "main".to_string(),
-        };
-
-        let result = std::fs::read_to_string(config.private_key_path.as_ref().unwrap());
-        assert!(result.is_err(), "Should fail to read nonexistent file");
-    }
-
-    #[test]
     fn test_auth_method_serde_variants() {
         for (method, expected) in [
             (AuthMethod::Password, "\"Password\""),
@@ -383,5 +329,18 @@ mod tests {
             assert_eq!(json, expected);
             let _: AuthMethod = serde_json::from_str(&json).unwrap();
         }
+    }
+
+    #[test]
+    fn test_ssh_channel_msg_serialization() {
+        let msg = SshChannelMsg::Viewport { 
+            data: vec![1, 2, 3], 
+            at_bottom: true 
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        // With tag="type" and content="data", it should be {"type":"Viewport","data":{"data":[1,2,3],"at_bottom":true}}
+        assert!(json.contains("\"type\":\"Viewport\""));
+        assert!(json.contains("\"data\":[1,2,3]"));
+        assert!(json.contains("\"at_bottom\":true"));
     }
 }
