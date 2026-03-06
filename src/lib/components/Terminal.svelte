@@ -89,6 +89,65 @@
             if (term) term.focus();
         });
 
+        // Touch handling: single tap → mouse click (Zellij pane focus),
+        // double tap → ToggleFocusFullscreen
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchMoved = false;
+        let lastTapTime = 0;
+        let lastTapX = 0;
+        let lastTapY = 0;
+        const DOUBLE_TAP_DELAY = 320;
+        const DOUBLE_TAP_DIST = 40;
+
+        terminalElement.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            touchMoved = false;
+        }, { passive: true });
+
+        terminalElement.addEventListener('touchmove', (e) => {
+            if (Math.abs(e.touches[0].clientX - touchStartX) > 8 ||
+                Math.abs(e.touches[0].clientY - touchStartY) > 8) {
+                touchMoved = true;
+            }
+        }, { passive: true });
+
+        terminalElement.addEventListener('touchend', (e) => {
+            if (touchMoved || e.changedTouches.length !== 1) return;
+
+            const touch = e.changedTouches[0];
+            const now = Date.now();
+            const dx = touch.clientX - lastTapX;
+            const dy = touch.clientY - lastTapY;
+
+            if (now - lastTapTime < DOUBLE_TAP_DELAY && Math.hypot(dx, dy) < DOUBLE_TAP_DIST) {
+                // Double tap — toggle fullscreen pane
+                lastTapTime = 0; // reset so a third tap starts fresh
+                e.preventDefault();
+                appState.runZellijAction(tabId, 'ToggleFocusFullscreen');
+                return;
+            }
+
+            lastTapTime = now;
+            lastTapX = touch.clientX;
+            lastTapY = touch.clientY;
+
+            // Single tap — simulate mouse press/release so xterm.js forwards it to Zellij
+            // as an ANSI mouse event, which Zellij uses to change pane focus.
+            e.preventDefault(); // suppress browser synthetic mouse events (avoids double-fire)
+            const screen = terminalElement.querySelector('.xterm-screen') ?? terminalElement;
+            const common = {
+                bubbles: true, cancelable: true, view: window,
+                clientX: touch.clientX, clientY: touch.clientY,
+                screenX: touch.screenX, screenY: touch.screenY,
+                button: 0,
+            };
+            screen.dispatchEvent(new MouseEvent('mousedown', { ...common, buttons: 1 }));
+            screen.dispatchEvent(new MouseEvent('mouseup',   { ...common, buttons: 0 }));
+        }, { passive: false });
+
         term.onData((data) => {
             // Any key press exits scrollback and snaps back to live view
             if (isScrolling) {

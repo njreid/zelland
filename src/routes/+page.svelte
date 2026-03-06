@@ -15,11 +15,25 @@
     let sidebarOpen = $state(false);
     let isLinux = $state(false);
     let ribbonContainer: HTMLDivElement;
+    let keyboardEl: HTMLDivElement;
+    let keyboardHeight = $state(0);
 
     onMount(async () => {
         await appState.fetchAllProjects();
         const osPlatform = await platform();
         isLinux = osPlatform === 'linux';
+
+        if (!isLinux && window.visualViewport) {
+            const vv = window.visualViewport;
+            function updateKeyboardPosition() {
+                if (!keyboardEl) return;
+                const bottomGap = Math.max(0, window.innerHeight - (vv.offsetTop + vv.height));
+                keyboardEl.style.bottom = `${bottomGap}px`;
+            }
+            vv.addEventListener('resize', updateKeyboardPosition);
+            vv.addEventListener('scroll', updateKeyboardPosition);
+            updateKeyboardPosition();
+        }
     });
 
     function toggleSidebar() {
@@ -82,6 +96,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <main class="container-fluid" onclick={closeSidebar}>
     {#if isLinux}
         <!-- Prevent clicks on the TopBar from closing the sidebar immediately -->
@@ -90,7 +105,7 @@
         </div>
     {/if}
 
-    <div style="display: flex; flex: 1; overflow: hidden; position: relative;">
+    <div style="display: flex; flex: 1; overflow: hidden; position: relative; {!isLinux ? `padding-bottom: ${keyboardHeight}px; box-sizing: border-box;` : ''}">
         {#if sidebarOpen}
             <!-- Prevent clicks inside the sidebar from closing it -->
             <div onclick={(e) => e.stopPropagation()}>
@@ -170,8 +185,14 @@
     </div>
 
     <!-- Bottom Area (Shortcut Bar / Virtual Keyboard) - Only on non-Linux (Mobile) -->
+    <!-- Fixed above the system keyboard; Visual Viewport API keeps it anchored -->
     {#if !isLinux}
-        <div onclick={(e) => e.stopPropagation()}>
+        <div
+            bind:this={keyboardEl}
+            bind:clientHeight={keyboardHeight}
+            onclick={(e) => e.stopPropagation()}
+            style="position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;"
+        >
             <VirtualKeyboard onToggleSidebar={toggleSidebar} />
         </div>
     {/if}

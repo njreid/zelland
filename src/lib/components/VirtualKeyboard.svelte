@@ -1,26 +1,35 @@
 <script lang="ts">
-    import { CornerDownLeft, ArrowRightToLine, Menu } from 'lucide-svelte';
+    import { CornerDownLeft, ArrowRightToLine, Menu, ChevronLeft, ChevronUp, ChevronDown, ChevronRight, Move } from 'lucide-svelte';
     import { appState } from '$lib/stores/app.svelte';
-    import { SPECIAL_KEYS } from '$lib/utils/key-mapper';
+    import { SPECIAL_KEYS, modifiedArrow } from '$lib/utils/key-mapper';
     import { onMount } from 'svelte';
-    import ArrowPad from './ArrowPad.svelte';
 
     let { onToggleSidebar } = $props();
 
     let ctrl = $state(false);
-    let alt = $state(false);
+    let alt  = $state(false);
     let meta = $state(false);
+    let arrowsOpen = $state(false);
 
-    // Send a specific sequence directly (for click buttons)
+    function resetModifiers() {
+        ctrl = false;
+        alt  = false;
+        meta = false;
+    }
+
+    // Send a literal sequence, applying any active modifiers if it's an arrow key.
     function sendKey(seq: string) {
         if (appState.activeSessionId) {
             appState.writeInput(appState.activeSessionId, Array.from(new TextEncoder().encode(seq)));
         }
-        // Reset modifiers after click action? Usually yes for single-shot modifiers
         resetModifiers();
     }
 
-    // Send Zellij tab switch command
+    // Arrow keys need modifier encoding (\x1b[1;5A for Ctrl+Up, etc.)
+    function sendArrow(base: string) {
+        sendKey(modifiedArrow(base, { ctrl, alt, meta }));
+    }
+
     async function sendZellijTab(n: number) {
         if (appState.activeSessionId) {
             await appState.runZellijAction(appState.activeSessionId, `go-to-tab ${n}`);
@@ -29,124 +38,76 @@
 
     function toggleModifier(mod: 'ctrl' | 'alt' | 'meta') {
         if (mod === 'ctrl') ctrl = !ctrl;
-        if (mod === 'alt') alt = !alt;
+        if (mod === 'alt')  alt  = !alt;
         if (mod === 'meta') meta = !meta;
-        
-        // Return focus to terminal after picking a modifier
         appState.triggerTerminalFocus();
     }
 
-    function resetModifiers() {
-        ctrl = false;
-        alt = false;
-        meta = false;
-    }
-
-    // Listen for physical keyboard events to apply virtual modifiers
-    function handleGlobalKeydown(e: KeyboardEvent) {
-        if (!ctrl && !alt && !meta) return;
-
-        // Prevent default if we are modifying it
-        // e.preventDefault(); // Be careful with this, might block normal typing too aggressively
-
-        // Logic to construct modified key sequence
-        // This is complex. For now, let's assume we just want to send the modified key code.
-        // A simpler approach for "add modifier to next key" is tricky with web key events.
-        // We might need to rely on the terminal handling standard keyboard events
-        // and only intercept if we are "injecting" modifiers.
-        
-        // Actually, xterm.js handles keyboard input. 
-        // If we want these toggle buttons to affect the physical keyboard, 
-        // we need to intercept the key at the window level, prevent xterm from seeing the original,
-        // and send a custom sequence.
-        
-        // Simplified approach: These modifiers only affect the NEXT click on the virtual bar 
-        // OR we try to simulate it.
-        // But the prompt says "add their modifier to the next key entered by the system keyboard".
-        
-        // Let's defer strict system keyboard interception for a moment and focus on layout 
-        // as the "system keyboard" on mobile usually doesn't show up unless an input is focused.
-        // If xterm textarea is focused, it receives input.
-        
-        // Implementation:
-        // We capture 'keydown' on window during capture phase.
-        // If modifiers are active, we stop propagation, construct the sequence, send it, and reset modifiers.
-    }
-
+    // Apply virtual modifiers to physical keyboard input while any modifier is active.
+    // Also handle arrow keys from a physical keyboard.
     onMount(() => {
-       window.addEventListener('keydown', (e) => {
-           if (ctrl || alt || meta) {
-               // Only intercept single character keys or known functional keys
-               if (e.key.length === 1 || e.key === 'Enter' || e.key === 'Tab') {
-                   e.preventDefault();
-                   e.stopPropagation();
-                   
-                   // Construct simplified sequence (basic support)
-                   // Real SSH modifiers are hard. 
-                   // Ctrl+char -> charCode - 64 (for A-Z)
-                   // Alt+char -> ESC + char
-                   
-                   let char = e.key;
-                   if (e.key === 'Enter') char = '\r';
-                   if (e.key === 'Tab') char = '\t';
+        window.addEventListener('keydown', (e) => {
+            if (!ctrl && !alt && !meta) return;
 
-                   // Alt handler
-                   if (alt) {
-                       char = `\x1b${char}`;
-                   }
-                   
-                   // Ctrl handler (basic)
-                   if (ctrl && char.length === 1) {
-                       const code = char.toUpperCase().charCodeAt(0);
-                       if (code >= 64 && code <= 95) {
-                           char = String.fromCharCode(code - 64);
-                       }
-                   }
+            // Arrow keys with modifiers
+            const arrowMap: Record<string, string> = {
+                ArrowUp: SPECIAL_KEYS.UP, ArrowDown: SPECIAL_KEYS.DOWN,
+                ArrowLeft: SPECIAL_KEYS.LEFT, ArrowRight: SPECIAL_KEYS.RIGHT,
+            };
+            if (arrowMap[e.key]) {
+                e.preventDefault();
+                e.stopPropagation();
+                sendArrow(arrowMap[e.key]);
+                return;
+            }
 
-                   // Meta/Super handler (often same as Alt in terminals or ignored)
-                   // We'll treat as Alt for now
-                   if (meta && !alt) {
-                        char = `\x1b${char}`;
-                   }
+            if (e.key.length === 1 || e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                e.stopPropagation();
 
-                   sendKey(char);
-               }
-           }
-       }, true);
+                let char = e.key;
+                if (e.key === 'Enter') char = '\r';
+                if (e.key === 'Tab')   char = '\t';
+
+                if (alt) char = `\x1b${char}`;
+                if (ctrl && char.length === 1) {
+                    const code = char.toUpperCase().charCodeAt(0);
+                    if (code >= 64 && code <= 95) char = String.fromCharCode(code - 64);
+                }
+                if (meta && !alt) char = `\x1b${char}`;
+
+                sendKey(char);
+            }
+        }, true);
     });
 </script>
 
 <div class="keyboard-root pb-safe">
+    <!-- Arrow row: shown when arrowsOpen -->
+    {#if arrowsOpen}
+        <div class="arrow-row">
+            <button class="outline contrast icon-btn key-unit" onclick={() => sendArrow(SPECIAL_KEYS.LEFT)}><ChevronLeft  size={16} /></button>
+            <button class="outline contrast icon-btn key-unit" onclick={() => sendArrow(SPECIAL_KEYS.UP)}><ChevronUp    size={16} /></button>
+            <button class="outline contrast icon-btn key-unit" onclick={() => sendArrow(SPECIAL_KEYS.DOWN)}><ChevronDown  size={16} /></button>
+            <button class="outline contrast icon-btn key-unit" onclick={() => sendArrow(SPECIAL_KEYS.RIGHT)}><ChevronRight size={16} /></button>
+        </div>
+    {/if}
+
+    <!-- Main mod-bar -->
     <div class="mod-bar">
-        <!-- Left Group: Menu + Modifiers -->
+        <!-- Left: Menu + modifiers -->
         <div class="group">
             <button class="outline contrast icon-btn key-unit" onclick={() => onToggleSidebar()} title="Menu">
                 <Menu size={18} />
             </button>
-            
             <div role="group" class="mb-0">
-                <button 
-                    class="{ctrl ? 'primary' : 'outline contrast'} key-unit"
-                    onclick={() => toggleModifier('ctrl')}
-                >
-                    C
-                </button>
-                <button 
-                    class="{alt ? 'primary' : 'outline contrast'} key-unit"
-                    onclick={() => toggleModifier('alt')}
-                >
-                    A
-                </button>
-                <button 
-                    class="{meta ? 'primary' : 'outline contrast'} key-unit"
-                    onclick={() => toggleModifier('meta')}
-                >
-                    M
-                </button>
+                <button class="{ctrl ? 'primary' : 'outline contrast'} key-unit" onclick={() => toggleModifier('ctrl')}>C</button>
+                <button class="{alt  ? 'primary' : 'outline contrast'} key-unit" onclick={() => toggleModifier('alt')}>A</button>
+                <button class="{meta ? 'primary' : 'outline contrast'} key-unit" onclick={() => toggleModifier('meta')}>M</button>
             </div>
         </div>
 
-        <!-- Center Group: Dynamic Tabs (Hidden on small screens if needed, or flexible) -->
+        <!-- Center: tab buttons (hidden on narrow screens) -->
         <div class="group flex-grow justify-center hide-on-narrow">
             <div role="group" class="mb-0">
                 <button class="outline contrast key-unit tab-btn" onclick={() => sendZellijTab(1)}>1</button>
@@ -155,13 +116,17 @@
             </div>
         </div>
 
-        <!-- Right Group: Nav + Arrows + Enter -->
+        <!-- Right: ESC, Tab, arrows toggle, Enter -->
         <div class="group">
-            <button class="outline contrast key-unit" onclick={() => sendKey(SPECIAL_KEYS.ESC)}>ESC</button>
+            <button class="outline contrast key-unit"     onclick={() => sendKey(SPECIAL_KEYS.ESC)}>ESC</button>
             <button class="outline contrast icon-btn key-unit" onclick={() => sendKey(SPECIAL_KEYS.TAB)}><ArrowRightToLine size={18} /></button>
-            
-            <ArrowPad sendKey={sendKey} />
-
+            <button
+                class="{arrowsOpen ? 'primary' : 'outline contrast'} icon-btn key-unit"
+                onclick={() => arrowsOpen = !arrowsOpen}
+                title="Arrow keys"
+            >
+                <Move size={18} />
+            </button>
             <button class="primary icon-btn key-unit" onclick={() => sendKey(SPECIAL_KEYS.ENTER)}><CornerDownLeft size={18} /></button>
         </div>
     </div>
@@ -188,29 +153,28 @@
     }
     .mod-bar::-webkit-scrollbar { display: none; }
 
+    /* Arrow row: right-aligned, same padding as mod-bar */
+    .arrow-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.25rem 0.5rem 0;
+    }
+
     .group {
         display: flex;
         gap: 0.5rem;
         align-items: center;
     }
 
-    .flex-grow {
-        flex-grow: 1;
-    }
-    
-    .justify-center {
-        justify-content: center;
-    }
+    .flex-grow   { flex-grow: 1; }
+    .justify-center { justify-content: center; }
 
-    /* Hide tab buttons if screen is too narrow (approx < 600px) 
-       Adjust breakpoint as needed for "if horizontal space" requirement */
     @media (max-width: 600px) {
-        .hide-on-narrow {
-            display: none;
-        }
+        .hide-on-narrow { display: none; }
     }
 
-    /* Fixed unit size for all buttons */
     .key-unit {
         width: 2.2rem;
         height: 2.2rem;
@@ -225,16 +189,12 @@
         border-width: 1px;
     }
 
-    /* Tab buttons specific styling */
     .tab-btn {
         background-color: #2a2b3d;
         border-color: #4a4b5d;
         color: #c0caf5;
     }
-    .tab-btn:active {
-        background-color: var(--pico-primary);
-        color: white;
-    }
+    .tab-btn:active { background-color: var(--pico-primary); color: white; }
 
     .icon-btn {
         display: flex;
@@ -242,8 +202,5 @@
         justify-content: center;
     }
 
-    /* Override Pico's group margin */
-    [role="group"] {
-        margin-bottom: 0 !important;
-    }
+    [role="group"] { margin-bottom: 0 !important; }
 </style>
