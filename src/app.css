@@ -1,0 +1,109 @@
+@import "@picocss/pico/css/pico.css";
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap');
+
+/* Local Fonts */
+@font-face {
+  font-family: 'InconsolataGoNerdFontMono';
+  src: url('/fonts/InconsolataGoNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'InconsolataGoNerdFontMono';
+  src: url('/fonts/InconsolataGoNerdFontMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lobster';
+  src: url('/fonts/Lobster-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Pico Overrides */
+  --pico-font-size: 0.9rem;
+  --pico-font-family: "Lexend", system-ui, -apple-system, sans-serif;
+  --pico-background-color: #1a1b26;
+  --pico-color: #a9b1d6;
+  --pico-primary: #7aa2f7;
+  --pico-primary-background: #7aa2f7;
+  --pico-primary-hover: #89b4fa;
+  --pico-border-color: #313244;
+  --pico-form-element-background-color: #24283b;
+  --pico-form-element-border-color: #313244;
+  --pico-form-element-color: #ffffff;
+  
+  /* Theme Variables */
+  --bg-darker: #16161e;
+  --bg-keyboard: #1e1e2e;
+  --bg-input: #24283b;
+  --fg-dim: #565f89;
+  --accent: #7aa2f7;
+  --accent-alt: #89b4fa;
+  --error: #f7768e;
+  --success: #9ece6a;
+  
+  /* Component Specific */
+  --sidebar-width: 250px;
+  --ann-sidebar-width: 280px;
+  --topbar-height: 3.5rem;
+  --keyboard-height: auto;
+}
+
+body {
+  overflow: hidden;
+  margin: 0;
+  height: 100dvh;
+  width: 100vw;
+}
+
+.title-font {
+  font-family: "Lobster", cursive;
+}
+
+main.container-fluid {
+  max-width: none;
+  padding: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane {
+  scroll-snap-align: start;
+  min-width: 100%;
+  height: 100%;
+  border-left: 1px solid var(--pico-border-color);
+  overflow: hidden;
+}
+
+/* Utilities */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.flex-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.uppercase {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

@@ -6,31 +6,9 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [sveltekit()],
-
-  build: {
-    target: "esnext",
-  },
-  esbuild: {
-    supported: {
-      "top-level-await": true,
-    },
-  },
-
-  optimizeDeps: {
-    esbuildOptions: {
-      target: "esnext",
-      supported: {
-        "top-level-await": true,
-      },
-    },
-  },
-
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['./src/test-setup.ts'],
-  },
+  plugins: [
+    sveltekit()
+  ],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -52,5 +30,15 @@ export default defineConfig(async () => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+  },
+
+  build: {
+    target: "esnext",
+  },
+
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test-setup.ts'],
   },
 }));

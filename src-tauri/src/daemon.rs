@@ -249,9 +249,11 @@ pub async fn daemon_annotate_file(
     path: String,
     ann_id: String,
     quote: String,
-    prefix: String,
     author: String,
     body: String,
+    code_range: Option<String>,
+    codeblock_handle: Option<String>,
+    code_text_prefix: Option<String>,
 ) -> Result<(), String> {
     debug!("Annotating file via daemon: {} for ann {}", path, ann_id);
     let res = state.http_client.post(format!("{}/api/v1/fs/annotate", url))
@@ -259,22 +261,24 @@ pub async fn daemon_annotate_file(
             "path": path,
             "ann_id": ann_id,
             "quote": quote,
-            "prefix": prefix,
             "author": author,
             "body": body,
+            "code_range": code_range,
+            "codeblock_handle": codeblock_handle,
+            "code_text_prefix": code_text_prefix,
         }))
         .send().await
         .map_err(|e| {
             error!("Failed to send annotate request for {}: {}", path, e);
             e.to_string()
         })?;
-    
+
     if !res.status().is_success() {
         let err = format!("Failed to annotate file: status {}", res.status());
         error!("{}", err);
         return Err(err);
     }
-    
+
     Ok(())
 }
 

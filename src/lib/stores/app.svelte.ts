@@ -189,136 +189,43 @@ function createAppState() {
         }
     }
 
-    // --- Initialization ---
-    async function init() {
-        try {
-            const store = await load(STORE_PATH);
-            const savedHosts = await store.get<Host[]>("hosts");
-            const savedSessions = await store.get<Session[]>("sessions");
-            const savedFontSize = await store.get<number>("terminalFontSize");
-            const savedFontWeight = await store.get<string>("terminalFontWeight");
-            const savedMarkdownFontSize = await store.get<number>("markdownFontSize");
-            const savedMarkdownFontWeight = await store.get<string>("markdownFontWeight");
-            const savedRecentIds = await store.get<string[]>("recentSessionIds");
+    // Define public methods using local variables
+    const methods = {
+        async fetchProjectsForHost(hostId: string) { await fetchProjectsForHost(hostId); },
 
-            if (savedHosts) hosts = savedHosts.map(h => ({ ...h, reachable: false, projects: [] }));
-            if (savedSessions) sessions = savedSessions.map(s => ({ ...s, status: 'disconnected' }));
-            if (savedFontSize) terminalFontSize = savedFontSize;
-            if (savedFontWeight) terminalFontWeight = savedFontWeight;
-            if (savedMarkdownFontSize) markdownFontSize = savedMarkdownFontSize;
-            if (savedMarkdownFontWeight) markdownFontWeight = savedMarkdownFontWeight;
-            if (savedRecentIds) recentSessionIds = savedRecentIds;
-            
-            for (const host of hosts) fetchProjectsForHost(host.id);
-            fetchSshKeys();
-            fetchDaemonRecentSessions();
-        } catch (e) {
-            console.error("Failed to load store:", e);
-        }
+        connectSession(sessionId: string) {
+            const session = sessions.find(s => s.id === sessionId);
+            if (!session) return;
+            session.status = 'connecting';
+            activeSessionId = sessionId;
+            log(`Connecting to session: ${session.label}...`);
+        },
 
-        // --- Event Listeners ---
-        listen("daemon-event", (event: any) => {
-            const payload = event.payload.payload;
-            if (payload?.OpenView) {
-                const req = payload.OpenView;
-                log(`Received view update: ${req.title}`);
-                if (!viewUpdateTrigger[req.title]) viewUpdateTrigger[req.title] = 0;
-                viewUpdateTrigger[req.title] += 1;
-            }
-        });
+        triggerTerminalResize() { terminalResizeTrigger += 1; },
+        
+        scrollToPane(index: number) { navigationTrigger = index; },
 
-        listen("tunnel-status", (event) => log(`Tunnel status: ${event.payload}`));
-        listen("tunnel-error", (event) => log(`Tunnel error: ${event.payload}`, 'error'));
+        async runZellijAction(sessionId: string, action: string) {
+            const session = sessions.find(s => s.id === sessionId);
+            if (!session) return;
 
-        listen("biometric-request", async (event: any) => {
-            const request = event.payload;
-            log(`Biometric auth requested for key: ${request.key_id}`);
-            try {
-                await invoke("biometric_result", {
-                    response: { request_id: request.request_id, success: true, error: null }
-                });
-            } catch (e) {
-                console.error("Failed to handle biometric request:", e);
-                await invoke("biometric_result", {
-                    response: { request_id: request.request_id, success: false, error: String(e) }
-                });
-            }
-        });
-
-        listen<AgentNotification>("agent-notification", ({ payload }) => {
-            lastAgentNotification = payload;
-            log(`Agent notification: ${payload.title}`);
-        });
-
-        listen<any>("navigate-to-session", (event) => {
-            const payload = event.payload;
-            let session_name: string | null = null;
-            let tab_index = 0;
-
-            if (typeof payload === 'string') {
+            if (daemonConnected) {
                 try {
-                    const parsed = JSON.parse(payload);
-                    session_name = parsed.session_name;
-                    tab_index = parsed.tab_index ?? 0;
-                } catch {
-                    session_name = payload;
-                }
-            } else if (payload && typeof payload === 'object') {
-                session_name = payload.session_name;
-                tab_index = payload.tab_index ?? 0;
-            }
-
-            if (session_name) {
-                const session = sessions.find(s => s.zellijSession === session_name);
-                if (session) {
-                    if (session.status !== 'connected') {
-                        session.status = 'connecting';
-                        activeSessionId = session.id;
-                    } else {
-                        activeSessionId = session.id;
-                        if (tab_index > 0) {
-                            // Using a timeout to ensure terminal is focused before sending action
-                            setTimeout(() => {
-                                const command = `zellij -s ${session.zellijSession} action go-to-tab ${tab_index}`;
-                                invoke("run_remote_command", { config: buildSshConfig(session), command }).catch(() => {});
-                            }, 500);
-                        }
-                    }
-                    navigationTrigger = 0; // Switch to terminal pane
+                    await invoke("daemon_run_zellij_action", { action, sessionName: session.zellijSession });
+                    return;
+                } catch (e) {
+                    console.warn("Failed to run zellij action via daemon, falling back to SSH:", e);
                 }
             }
-        });
-    }
 
-    init();
+            const command = `zellij -s ${session.zellijSession} action ${action}`;
+            try {
+                await invoke("run_remote_command", { config: buildSshConfig(session), command });
+            } catch (e) {
+                log(`Failed to run zellij action: ${e}`, 'error');
+            }
+        },
 
-    // --- Actions ---
-    return {
-        // State getters
-        get hosts() { return hosts; },
-        get sessions() { return sessions; },
-        get activeSessionId() { return activeSessionId; },
-        set activeSessionId(id: string | null) { activeSessionId = id; },
-        get activeSession() { return activeSession; },
-        get activeProject() { return activeProject; },
-        get recentSessions() { return recentSessions; },
-        get terminalFontSize() { return terminalFontSize; },
-        get terminalFontWeight() { return terminalFontWeight; },
-        get markdownFontSize() { return markdownFontSize; },
-        get markdownFontWeight() { return markdownFontWeight; },
-        get terminalFocusTrigger() { return terminalFocusTrigger; },
-        get terminalResizeTrigger() { return terminalResizeTrigger; },
-        get navigationTrigger() { return navigationTrigger; },
-        get openMarkdownFiles() { return openMarkdownFiles; },
-        get loadedFiles() { return loadedFiles; },
-        get logs() { return logs; },
-        get sshKeys() { return sshKeys; },
-        get viewUpdateTrigger() { return viewUpdateTrigger; },
-        get daemonConnected() { return daemonConnected; },
-        get daemonRecentSessions() { return daemonRecentSessions; },
-        get lastAgentNotification() { return lastAgentNotification; },
-
-        // Methods
         async navigateToSession(zellijSessionName: string, tabIndex: number) {
             const session = sessions.find(s => s.zellijSession === zellijSessionName);
             if (!session) return;
@@ -334,8 +241,6 @@ function createAppState() {
 
         dismissAgentNotification() { lastAgentNotification = null; },
 
-        scrollToPane(index: number) { navigationTrigger = index; },
-        
         openMarkdownFile(filename: string) {
             const cleanName = filename.startsWith('./') ? filename.slice(2) : filename;
             let index = openMarkdownFiles.indexOf(cleanName);
@@ -347,7 +252,6 @@ function createAppState() {
         },
 
         triggerTerminalFocus() { terminalFocusTrigger += 1; },
-        triggerTerminalResize() { terminalResizeTrigger += 1; },
         setFileLoaded(filename: string, loaded: boolean) { loadedFiles[filename] = loaded; },
 
         setTerminalFontSize(size: number) {
@@ -397,8 +301,6 @@ function createAppState() {
             fetchProjectsForHost(id);
         },
 
-        async fetchProjectsForHost(hostId: string) { await fetchProjectsForHost(hostId); },
-
         async fetchAllProjects() {
             for (const host of hosts) await fetchProjectsForHost(host.id);
         },
@@ -424,23 +326,11 @@ function createAppState() {
             await saveToStore();
         },
 
-        // Prepare a session for connection: sets status + makes Terminal mount.
-        // Terminal.svelte takes it from here by calling invoke('ssh_connect') itself.
-        connectSession(sessionId: string) {
-            const session = sessions.find(s => s.id === sessionId);
-            if (!session) return;
-            session.status = 'connecting';
-            activeSessionId = sessionId;
-            log(`Connecting to session: ${session.label}...`);
-        },
-
-        // Returns the SSH config Terminal.svelte needs to call ssh_connect.
         getSshConfig(sessionId: string) {
             const session = sessions.find(s => s.id === sessionId);
             return session ? buildSshConfig(session) : null;
         },
 
-        // Called by Terminal.svelte after invoke('ssh_connect') resolves.
         onSessionConnected(sessionId: string) {
             const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
@@ -456,11 +346,9 @@ function createAppState() {
                 .then(() => { daemonConnected = true; })
                 .catch(() => { daemonConnected = false; });
             
-            // Re-trigger resize to sync backend
             this.triggerTerminalResize();
         },
 
-        // Called by Terminal.svelte when invoke('ssh_connect') throws.
         onSessionConnectionFailed(sessionId: string, error: string) {
             const session = sessions.find(s => s.id === sessionId);
             if (session) session.status = 'error';
@@ -468,7 +356,6 @@ function createAppState() {
             log(`Connection failed for ${session?.label}: ${error}`, 'error');
         },
 
-        // Called by Terminal.svelte when the SSH channel sends a Closed message.
         onSessionClosed(sessionId: string) {
             const session = sessions.find(s => s.id === sessionId);
             if (session) session.status = 'disconnected';
@@ -534,12 +421,12 @@ function createAppState() {
 
         async closeActiveSession() {
             if (!activeSessionId) return;
-            const session = sessions.find(s => s.id === activeSessionId);
             try {
                 await invoke("ssh_disconnect", { tabId: activeSessionId });
             } catch (e) {
                 console.warn("SSH disconnect failed:", e);
             }
+            const session = sessions.find(s => s.id === activeSessionId);
             if (session) session.status = 'disconnected';
             activeSessionId = null;
         },
@@ -550,15 +437,11 @@ function createAppState() {
             const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
 
-            // Tear down: disconnect and null out activeSessionId so Terminal unmounts
             try { await invoke("ssh_disconnect", { tabId: sessionId }); } catch {}
             session.status = 'disconnected';
             activeSessionId = null;
 
-            // Give Svelte a tick to destroy the old Terminal component
             await new Promise(resolve => setTimeout(resolve, 50));
-
-            // Reconnect — connectSession sets activeSessionId and remounts Terminal
             this.connectSession(sessionId);
         },
 
@@ -570,34 +453,142 @@ function createAppState() {
             invoke("ssh_scroll", { tabId: sessionId, delta }).catch(() => {});
         },
 
-        async runZellijAction(sessionId: string, action: string) {
-            const session = sessions.find(s => s.id === sessionId);
-            if (!session) return;
-
-            if (daemonConnected) {
-                try {
-                    await invoke("daemon_run_zellij_action", { action, sessionName: session.zellijSession });
-                    return;
-                } catch (e) {
-                    console.warn("Failed to run zellij action via daemon, falling back to SSH:", e);
-                }
-            }
-
-            const command = `zellij -s ${session.zellijSession} action ${action}`;
-            try {
-                await invoke("run_remote_command", { config: buildSshConfig(session), command });
-            } catch (e) {
-                log(`Failed to run zellij action: ${e}`, 'error');
-            }
-        },
-
         async resize(sessionId: string, rows: number, cols: number) {
             try {
                 await invoke("ssh_resize", { tabId: sessionId, rows, cols });
-            } catch (e) {
-                // Silently fail if session is not yet active in backend
-            }
+            } catch (e) { }
         }
+    };
+
+    // --- Initialization function ---
+    async function init() {
+        try {
+            const store = await load(STORE_PATH);
+            const savedHosts = await store.get<Host[]>("hosts");
+            const savedSessions = await store.get<Session[]>("sessions");
+            const savedFontSize = await store.get<number>("terminalFontSize");
+            const savedFontWeight = await store.get<string>("terminalFontWeight");
+            const savedMarkdownFontSize = await store.get<number>("markdownFontSize");
+            const savedMarkdownFontWeight = await store.get<string>("markdownFontWeight");
+            const savedRecentIds = await store.get<string[]>("recentSessionIds");
+
+            if (savedHosts) hosts = savedHosts.map(h => ({ ...h, reachable: false, projects: [] }));
+            if (savedSessions) sessions = savedSessions.map(s => ({ ...s, status: 'disconnected' }));
+            if (savedFontSize) terminalFontSize = savedFontSize;
+            if (savedFontWeight) terminalFontWeight = savedFontWeight;
+            if (savedMarkdownFontSize) markdownFontSize = savedMarkdownFontSize;
+            if (savedMarkdownFontWeight) markdownFontWeight = savedMarkdownFontWeight;
+            if (savedRecentIds) recentSessionIds = savedRecentIds;
+            
+            for (const host of hosts) fetchProjectsForHost(host.id);
+            fetchSshKeys();
+            fetchDaemonRecentSessions();
+        } catch (e) {
+            console.error("Failed to load store:", e);
+        }
+
+        listen("daemon-event", (event: any) => {
+            const payload = event.payload.payload;
+            if (payload?.OpenView) {
+                const req = payload.OpenView;
+                log(`Received view update: ${req.title}`);
+                if (!viewUpdateTrigger[req.title]) viewUpdateTrigger[req.title] = 0;
+                viewUpdateTrigger[req.title] += 1;
+            }
+        });
+
+        listen("tunnel-status", (event) => log(`Tunnel status: ${event.payload}`));
+        listen("tunnel-error", (event) => log(`Tunnel error: ${event.payload}`, 'error'));
+
+        listen("biometric-request", async (event: any) => {
+            const request = event.payload;
+            log(`Biometric auth requested for key: ${request.key_id}`);
+            try {
+                await invoke("biometric_result", {
+                    response: { request_id: request.request_id, success: true, error: null }
+                });
+            } catch (e) {
+                console.error("Failed to handle biometric request:", e);
+                await invoke("biometric_result", {
+                    response: { request_id: request.request_id, success: false, error: String(e) }
+                });
+            }
+        });
+
+        listen<AgentNotification>("agent-notification", ({ payload }) => {
+            lastAgentNotification = payload;
+            log(`Agent notification: ${payload.title}`);
+        });
+
+        listen<any>("navigate-to-session", (event) => {
+            const payload = event.payload;
+            let session_name: string | null = null;
+            let tab_index = 0;
+
+            if (typeof payload === 'string') {
+                try {
+                    const parsed = JSON.parse(payload);
+                    session_name = parsed.session_name;
+                    tab_index = parsed.tab_index ?? 0;
+                } catch {
+                    session_name = payload;
+                }
+            } else if (payload && typeof payload === 'object') {
+                session_name = payload.session_name;
+                tab_index = payload.tab_index ?? 0;
+            }
+
+            if (session_name) {
+                const session = sessions.find(s => s.zellijSession === session_name);
+                if (session) {
+                    if (session.status !== 'connected') {
+                        methods.connectSession(session.id);
+                    } else {
+                        activeSessionId = session.id;
+                        if (tab_index > 0) {
+                            setTimeout(() => {
+                                const command = `zellij -s ${session.zellijSession} action go-to-tab ${tab_index}`;
+                                invoke("run_remote_command", { config: buildSshConfig(session), command }).catch(() => {});
+                            }, 500);
+                        }
+                    }
+                    navigationTrigger = 0;
+                }
+            }
+        });
+    }
+
+    // Call init but don't await it here to prevent blocking the return
+    init();
+
+    // --- Actions ---
+    return {
+        // State getters
+        get hosts() { return hosts; },
+        get sessions() { return sessions; },
+        get activeSessionId() { return activeSessionId; },
+        set activeSessionId(id: string | null) { activeSessionId = id; },
+        get activeSession() { return activeSession; },
+        get activeProject() { return activeProject; },
+        get recentSessions() { return recentSessions; },
+        get terminalFontSize() { return terminalFontSize; },
+        get terminalFontWeight() { return terminalFontWeight; },
+        get markdownFontSize() { return markdownFontSize; },
+        get markdownFontWeight() { return markdownFontWeight; },
+        get terminalFocusTrigger() { return terminalFocusTrigger; },
+        get terminalResizeTrigger() { return terminalResizeTrigger; },
+        get navigationTrigger() { return navigationTrigger; },
+        get openMarkdownFiles() { return openMarkdownFiles; },
+        get loadedFiles() { return loadedFiles; },
+        get logs() { return logs; },
+        get sshKeys() { return sshKeys; },
+        get viewUpdateTrigger() { return viewUpdateTrigger; },
+        get daemonConnected() { return daemonConnected; },
+        get daemonRecentSessions() { return daemonRecentSessions; },
+        get lastAgentNotification() { return lastAgentNotification; },
+
+        // Spread the methods
+        ...methods
     };
 }
 

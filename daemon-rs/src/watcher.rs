@@ -10,6 +10,7 @@ use crate::ws::ClientRegistry;
 /// Commands to control the file watcher.
 pub enum WatchCommand {
     Add(PathBuf),
+    AddRecursive(PathBuf),
 }
 
 /// Detect file type from extension, matching the Go daemon's logic.
@@ -24,10 +25,14 @@ pub fn detect_file_type(path: &Path) -> zelland::open_view_request::FileType {
     }
 }
 
+use std::sync::Arc;
+use crate::loro_manager::LoroManager;
+
 /// Start the file watcher loop. Returns a sender for WatchCommand.
 pub fn start_watcher(
     registry: ClientRegistry,
     asset_manager: AssetManager,
+    loro_manager: Arc<LoroManager>,
 ) -> mpsc::Sender<WatchCommand> {
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<WatchCommand>(64);
 
@@ -59,10 +64,17 @@ pub fn start_watcher(
                                 info!("Watching: {}", path.display());
                             }
                         }
+                        WatchCommand::AddRecursive(path) => {
+                            if let Err(e) = watcher.watch(&path, RecursiveMode::Recursive) {
+                                warn!("Failed to watch recursive {}: {}", path.display(), e);
+                            } else {
+                                info!("Watching recursive: {}", path.display());
+                            }
+                        }
                     }
                 }
                 Some(event) = event_rx.recv() => {
-                    handle_event(&event, &registry, &asset_manager).await;
+                    handle_event(&event, &registry, &asset_manager, &loro_manager).await;
                 }
                 else => break,
             }
@@ -76,15 +88,30 @@ async fn handle_event(
     event: &Event,
     registry: &ClientRegistry,
     asset_manager: &AssetManager,
+    loro_manager: &LoroManager,
 ) {
     if !matches!(event.kind, EventKind::Modify(_)) {
         return;
     }
 
     for path in &event.paths {
+        // Skip hidden files/dirs (like .zelland cache)
+        if path.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.')) {
+            continue;
+        }
+
+        let ftype = detect_file_type(path);
+        // We are primarily interested in Markdown updates for live preview/annotations
+        if ftype == zelland::open_view_request::FileType::Unknown {
+            continue;
+        }
+
+        // If it's a markdown file, also trigger a Loro reload to pick up annotation changes
+        if ftype == zelland::open_view_request::FileType::Markdown {
+            loro_manager.reload_from_disk(path).await;
+        }
+
         // Reverse lookup: find asset_id for this path
-        // For now, we iterate over all assets. If this becomes a bottleneck, 
-        // AssetManager could maintain a reverse index.
         let mut asset_id = None;
         {
             let map = asset_manager.assets.read().await;
@@ -96,26 +123,40 @@ async fn handle_event(
             }
         }
 
-        if let Some(asset_id) = asset_id {
-            let ftype = detect_file_type(path);
-            let title = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
+        // If no asset ID found, but it's a markdown file, we might still want to notify.
+        // However, the client needs an ID to fetch it.
+        // For simplicity, we'll auto-register it if it doesn't exist yet but was modified.
+        let asset_id = match asset_id {
+            Some(id) => id,
+            None => {
+                if ftype == zelland::open_view_request::FileType::Markdown {
+                    match asset_manager.register(path).await {
+                        Ok(id) => id,
+                        Err(_) => continue,
+                    }
+                } else {
+                    continue;
+                }
+            }
+        };
 
-            let timestamp = chrono::Utc::now().timestamp();
-            let envelope = Envelope {
-                payload: Some(Payload::OpenView(OpenViewRequest {
-                    asset_id: asset_id.clone(),
-                    url: format!("/assets/{}?t={}", asset_id, timestamp),
-                    file_type: ftype as i32,
-                    title,
-                })),
-            };
+        let title = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
 
-            registry.broadcast(&envelope);
-            info!("Broadcast file update for {}", path.display());
-        }
+        let timestamp = chrono::Utc::now().timestamp();
+        let envelope = Envelope {
+            payload: Some(Payload::OpenView(OpenViewRequest {
+                asset_id: asset_id.clone(),
+                url: format!("/assets/{}?t={}", asset_id, timestamp),
+                file_type: ftype as i32,
+                title,
+            })),
+        };
+
+        registry.broadcast(&envelope);
+        info!("Broadcast file update for {}", path.display());
     }
 }
 
@@ -169,5 +210,13 @@ mod tests {
             detect_file_type(Path::new("noext")),
             zelland::open_view_request::FileType::Unknown
         );
+    }
+
+    #[tokio::test]
+    async fn test_watcher_init() {
+        let registry = ClientRegistry::new();
+        let asset_manager = AssetManager::new();
+        let loro_manager = Arc::new(LoroManager::new());
+        let _tx = start_watcher(registry, asset_manager, loro_manager);
     }
 }

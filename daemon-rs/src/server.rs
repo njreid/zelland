@@ -102,7 +102,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let registry = ClientRegistry::new();
     let loro_manager = Arc::new(LoroManager::new());
 
-    let watcher_tx = watcher::start_watcher(registry.clone(), asset_manager.clone());
+    let watcher_tx = watcher::start_watcher(registry.clone(), asset_manager.clone(), loro_manager.clone());
 
     let state = AppState {
         config: Arc::new(config.clone()),
@@ -186,6 +186,9 @@ mod tests {
     #[tokio::test]
     async fn test_activate_endpoint() {
         let state = test_state();
+        let projects_path = state.config.projects_path.clone();
+        std::fs::create_dir(projects_path.join("test")).unwrap();
+
         let app = build_router(state);
 
         let resp = app
