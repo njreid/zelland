@@ -12,65 +12,20 @@ The **zelland Daemon** (`zlnd`) is a backend service written in **Rust**, runnin
    * **HTTP/WebSocket Server** (`axum`): REST API + live control channel with the app.
    * **Asset Server**: HTTPS server serving content via obfuscated, ephemeral URLs.
    * **Annotation Engine** (`yrs`): YJS CRDT document hosting, sync, and persistence to `.ann.kdl` sidecar files.
-   * **File Watcher** (`notify`): Monitors served files for changes, broadcasts updates.
+   * **File Watcher** (`notify`): Monitors served files and project directories for changes. Automatically reloads Loro CRDT state from Markdown if external changes are detected in the `# Comments` section.
 2. **CLI (`zn`)**: A lightweight command-line tool that communicates with the daemon via local HTTP to trigger actions (e.g., `zn show image.png`).
 3. **Client**: The zelland app (Tauri + Svelte), connecting via HTTP REST and WebSocket.
 
-## 2. Communication Protocols
+## 2. Core Features & Workflows
 
-### 2.1 Control Channel (WebSocket)
+### 3.1 Project Synchronization & Watching
 
-* **Transport**: Secure WebSocket (`wss://<host>:<port>/ws`).
-* **Format**: **Protocol Buffers (Protobuf)** via the `prost` crate.
-* **Purpose**: Instant command delivery (Server -> Client), interaction events (Client -> Server), and system notifications.
+The daemon automatically monitors Markdown files within "active" projects:
 
-### 2.2 Asset Transfer (HTTPS)
+1. **Activation**: When a client activates a project (via `/api/v1/projects/activate`), the daemon starts a recursive file watcher on the project root.
+2. **Live Preview**: Any modification to a `.md` file within a watched project triggers an `OpenViewRequest` broadcast, causing connected clients to reload the live preview.
+3. **Annotation Sync**: If the `# Comments` section of a Markdown file is edited externally (e.g., via a standard text editor), the file watcher triggers a Loro CRDT reload. The new comments are merged into the in-memory state and broadcast to all clients, ensuring the annotation sidebar stays in sync with the on-disk state.
 
-* **Transport**: HTTPS (served by the same `axum` server).
-* **Security**: Capability URLs + Loopback protection for trigger endpoints.
-* **Access Control**: **Capability URLs**. The daemon generates random, unguessable IDs for assets (e.g., `/assets/7f8a9d2b-4c1e`) mapped to specific file resources.
-
-### 2.3 Wake-Up Mechanism (FCM) - *Future*
-
-* **Service**: Firebase Cloud Messaging.
-* **Scenario**: If the WebSocket connection is dead (app backgrounded/killed) when the Daemon needs to deliver an urgent message to the app.
-
-## 3. Core Features & Workflows
-
-### 3.1 The `show` Command (Universal Viewer)
-
-**Goal**: Display an image, PDF, or generic file on the phone immediately.
-
-**Workflow**:
-
-1. **User**: Runs `zn show ./diagram.png` (CLI tool) on the remote host.
-2. **CLI**: Sends a POST request to `zlnd`'s `/api/v1/trigger/show` endpoint (Loopback only).
-3. **Daemon**:
-   * Generates a random asset ID.
-   * Maps `/assets/{id}` -> `./diagram.png`.
-   * Broadcasts an `OpenViewRequest` Protobuf message via WebSocket to all connected clients.
-4. **Client**:
-   * Receives `OpenViewRequest`.
-   * Opens a viewer pane.
-   * Fetches content from `https://<host>:<port>/assets/{id}`.
-
-### 3.2 The `md` Command (Markdown & Annotations)
-
-**Goal**: Read Markdown files and enable real-time collaborative annotations.
-
-**Workflow**:
-
-1. **User**: Runs `zn md ./notes.md`.
-2. **CLI** -> **Daemon**: Request to trigger Markdown view.
-3. **Daemon**:
-   * Registers `./notes.md` as an asset.
-   * Broadcasts `OpenViewRequest` with `file_type = MARKDOWN`.
-4. **Client**:
-   * Renders Markdown in `MarkdownPane.svelte`.
-   * Establishes a YJS sync connection to `ws://<host>:<port>/annotations/sync/path/to/notes.md`.
-5. **Collaboration**:
-   * Daemon manages a `yrs::Doc` for the annotation sidecar (`.ann.kdl`).
-   * Real-time edits are synced via the YJS WebSocket protocol.
 
 ## 4. Data Structures (Protobuf Definitions)
 

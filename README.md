@@ -12,7 +12,7 @@
 
 ## What is zelland?
 
-**zelland** is a modern Android application that brings the power of [Zellij](https://zellij.dev) terminal multiplexer to your mobile device. Built with **Jetpack Compose**, it provides a streamlined interface for connecting directly to remote Zellij web servers via HTTPS, featuring specialized terminal controls and multi-session management.
+**zelland** is a modern Android application that brings the power of [Zellij](https://zellij.dev) terminal multiplexer to your mobile device. Built with **Jetpack Compose**, it provides a streamlined interface for connecting directly to remote Zellij web servers via HTTPS, featuring specia[lized terminal controls and multi-session management.](#dzpnz)
 
 {}
 
@@ -144,3 +144,8 @@ Licensed under the Apache License, Version 2.0
 ---
 
 Made with ❤️ for the terminal-loving mobile community
+
+# Comments
+
+## dzpnz
+
