@@ -1,6 +1,7 @@
 package com.njr.zelland
 
 import android.app.Activity
+import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.View
@@ -40,6 +41,8 @@ class KeybarPlugin(private val activity: Activity, private val webView: WebView)
         val contentFrame = activity.window.decorView
             .findViewById<FrameLayout>(android.R.id.content)
 
+        Log.d(TAG, "setup: contentFrame=$contentFrame childCount=${contentFrame?.childCount}")
+
         val inflater = LayoutInflater.from(activity)
         val bar = inflater.inflate(R.layout.native_keybar, contentFrame, false)
         bar.tag = "keybar_root"
@@ -53,32 +56,41 @@ class KeybarPlugin(private val activity: Activity, private val webView: WebView)
         // so the overlay approach (Gravity.TOP + topMargin) would hide the keybar
         // behind the WebView surface. A LinearLayout solves this cleanly.
         val wryRoot = contentFrame.getChildAt(0)
+        Log.d(TAG, "setup: wryRoot=$wryRoot (${wryRoot?.javaClass?.simpleName})")
+
         if (wryRoot != null) {
             contentFrame.removeView(wryRoot)
             val wrapper = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
             }
+            wrapper.addView(wryRoot, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            ))
             wrapper.addView(bar, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ))
-            wrapper.addView(wryRoot, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             ))
             contentFrame.addView(wrapper, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             ))
+            Log.d(TAG, "setup: wrapped successfully — bar+wryRoot in LinearLayout")
         } else {
             // WRY root not found — fall back to overlay at top
             contentFrame.addView(bar, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.TOP
+                android.view.Gravity.BOTTOM
             ))
+            Log.w(TAG, "setup: wryRoot was null — used fallback overlay at bottom")
         }
 
         setupButtons(bar)
+        Log.d(TAG, "setup: complete")
+    }
+
+    companion object {
+        private const val TAG = "KeybarPlugin"
     }
 
     private fun setupButtons(bar: View) {
