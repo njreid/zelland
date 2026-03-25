@@ -253,6 +253,49 @@
     {/if}
 
     <div class="tree-container scrollbar-hide">
+        <!-- Project Files: shown when a project is active -->
+        {#if appState.activeProject && (appState.projectMdFiles.root.length > 0 || appState.projectMdFiles.docs.length > 0)}
+            {@const proj = appState.activeProject}
+            <small class="mt-0 block">PROJECT FILES</small>
+            <ul class="list-none">
+                {#each appState.projectMdFiles.root as file}
+                    <li>
+                        <button
+                            type="button"
+                            class="project-btn"
+                            class:active-file={appState.openMarkdownFiles.includes(`${proj.id}/${file}`)}
+                            onclick={() => appState.openMarkdownFile(`${proj.id}/${file}`)}
+                        >
+                            <span class="file-icon">📄</span> {file}
+                        </button>
+                    </li>
+                {/each}
+                {#if appState.projectMdFiles.docs.length > 0}
+                    <li>
+                        <details>
+                            <summary class="host-summary">
+                                <div class="flex-row"><span class="file-icon">📁</span> docs</div>
+                            </summary>
+                            <ul>
+                                {#each appState.projectMdFiles.docs as file}
+                                    <li>
+                                        <button
+                                            type="button"
+                                            class="project-btn"
+                                            class:active-file={appState.openMarkdownFiles.includes(`${proj.id}/${file}`)}
+                                            onclick={() => appState.openMarkdownFile(`${proj.id}/${file}`)}
+                                        >
+                                            {file.replace('docs/', '')}
+                                        </button>
+                                    </li>
+                                {/each}
+                            </ul>
+                        </details>
+                    </li>
+                {/if}
+            </ul>
+        {/if}
+
         <!-- Sessions Section -->
         <small>SESSIONS</small>
         <ul class="list-none">
@@ -571,4 +614,12 @@
     }
 
     .text-error { color: var(--error); }
+
+    .active-file {
+        color: var(--pico-primary);
+        font-weight: 600;
+    }
+    .file-icon {
+        font-size: 0.75rem;
+    }
 </style>

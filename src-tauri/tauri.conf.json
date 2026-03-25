@@ -33,5 +33,10 @@
       "icons/icon.ico"
     ],
     "externalBin": []
-  }
-}
+    },
+    "plugins": {
+    "android": {
+      "targets": ["aarch64"]
+    }
+    }
+    }

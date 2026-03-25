@@ -3,36 +3,40 @@
     import { appState } from '$lib/stores/app.svelte';
     import Terminal from '$lib/components/Terminal.svelte';
     import MarkdownPane from '$lib/components/MarkdownPane.svelte';
-    import VirtualKeyboard from '$lib/components/VirtualKeyboard.svelte';
     import TopBar from '$lib/components/TopBar.svelte';
     import Sidebar from '$lib/components/Sidebar.svelte';
     import ConnectionLogs from '$lib/components/ConnectionLogs.svelte';
     import { Menu, Terminal as TerminalIcon } from 'lucide-svelte';
     import type { DaemonRecentSession } from '$lib/stores/app.svelte';
     import { platform } from '@tauri-apps/plugin-os';
+    import { handleKbInput } from '$lib/utils/kb-input';
     import AgentNotificationToast from '$lib/components/AgentNotificationToast.svelte';
 
     let sidebarOpen = $state(false);
     let isLinux = $state(false);
     let ribbonContainer: HTMLDivElement;
-    let keyboardEl: HTMLDivElement;
-    let keyboardHeight = $state(0);
 
     onMount(async () => {
         await appState.fetchAllProjects();
         const osPlatform = await platform();
         isLinux = osPlatform === 'linux';
 
-        if (!isLinux && window.visualViewport) {
-            const vv = window.visualViewport;
-            function updateKeyboardPosition() {
-                if (!keyboardEl) return;
-                const bottomGap = Math.max(0, window.innerHeight - (vv.offsetTop + vv.height));
-                keyboardEl.style.bottom = `${bottomGap}px`;
-            }
-            vv.addEventListener('resize', updateKeyboardPosition);
-            vv.addEventListener('scroll', updateKeyboardPosition);
-            updateKeyboardPosition();
+        if (!isLinux) {
+            window.addEventListener('kb-input', (e) => {
+                const { seq } = (e as CustomEvent<{ seq: string }>).detail;
+                handleKbInput(seq, appState.activeSessionId, (id, bytes) => {
+                    appState.writeInput(id, bytes);
+                });
+            });
+            window.addEventListener('kb-sidebar-toggle', () => {
+                toggleSidebar();
+            });
+            window.addEventListener('kb-go-to-tab', (e) => {
+                const { tab } = (e as CustomEvent<{ tab: number }>).detail;
+                if (appState.activeSessionId) {
+                    appState.runZellijAction(appState.activeSessionId, `go-to-tab ${tab}`);
+                }
+            });
         }
     });
 
@@ -105,7 +109,7 @@
         </div>
     {/if}
 
-    <div style="display: flex; flex: 1; overflow: hidden; position: relative; {!isLinux ? `padding-bottom: ${keyboardHeight}px; box-sizing: border-box;` : ''}">
+    <div style="display: flex; flex: 1; overflow: hidden; position: relative;">
         {#if sidebarOpen}
             <!-- Prevent clicks inside the sidebar from closing it -->
             <div onclick={(e) => e.stopPropagation()}>
@@ -183,19 +187,6 @@
             {/each}
         </div>
     </div>
-
-    <!-- Bottom Area (Shortcut Bar / Virtual Keyboard) - Only on non-Linux (Mobile) -->
-    <!-- Fixed above the system keyboard; Visual Viewport API keeps it anchored -->
-    {#if !isLinux}
-        <div
-            bind:this={keyboardEl}
-            bind:clientHeight={keyboardHeight}
-            onclick={(e) => e.stopPropagation()}
-            style="position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;"
-        >
-            <VirtualKeyboard onToggleSidebar={toggleSidebar} />
-        </div>
-    {/if}
 
     <AgentNotificationToast />
 </main>

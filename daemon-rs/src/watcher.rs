@@ -90,7 +90,7 @@ async fn handle_event(
     asset_manager: &AssetManager,
     loro_manager: &LoroManager,
 ) {
-    if !matches!(event.kind, EventKind::Modify(_)) {
+    if !matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
         return;
     }
 

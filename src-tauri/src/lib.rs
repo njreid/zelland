@@ -1,12 +1,23 @@
 pub mod ssh;
 pub mod terminal;
+pub mod ghostty;
+pub mod renderer;
 pub mod daemon;
 pub mod intent;
+pub mod keybar;
 pub mod network;
 pub mod keystore;
 
 use tauri::{State, AppHandle, Manager};
 use tauri::ipc::Channel;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+static APP_HANDLE: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None));
+
+pub fn get_app_handle() -> Option<AppHandle> {
+    APP_HANDLE.lock().unwrap().clone()
+}
 #[cfg(target_os = "linux")]
 use webkit2gtk::{SettingsExt, WebInspectorExt, WebViewExt};
 
@@ -139,6 +150,8 @@ fn setup_linux_devtools(window: &tauri::WebviewWindow) {
 pub fn run() {
     tauri::Builder::default()
         .setup(|_app| {
+            *APP_HANDLE.lock().unwrap() = Some(_app.handle().clone());
+
             #[cfg(debug_assertions)]
             if let Some(window) = _app.get_webview_window("main") {
                 #[cfg(target_os = "linux")]
@@ -161,7 +174,6 @@ pub fn run() {
         .manage(DaemonManager::new())
         .plugin(tauri_plugin_log::Builder::new()
             .level(log::LevelFilter::Info) // Default to Info for app
-            .level_for("alacritty_terminal", log::LevelFilter::Warn)
             .level_for("russh", log::LevelFilter::Warn)
             .level_for("tokio_tungstenite", log::LevelFilter::Warn)
             .level_for("tungstenite", log::LevelFilter::Warn)
@@ -174,6 +186,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
         .plugin(intent::init())
+        .plugin(keybar::init())
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_disconnect,
@@ -185,6 +198,7 @@ pub fn run() {
             daemon_run_zellij_action,
             daemon::daemon_get_projects,
             daemon::daemon_activate_project,
+            daemon::daemon_list_project_files,
             daemon::daemon_read_file,
             daemon::daemon_annotate_file,
             daemon::daemon_get_recent_sessions,
@@ -200,4 +214,15 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
+        }
+
+        #[cfg(test)]
+        mod tests {
+        #[test]
+        fn test_android_connectivity() {
+        // This test will run on the Android device via Dinghy
+        let os = std::env::consts::OS;
+        println!("Running on OS: {}", os);
+        assert!(true);
+        }
+        }

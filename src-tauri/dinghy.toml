@@ -1,0 +1,8 @@
+[platforms.android-aarch64]
+rustc_triple = "aarch64-linux-android"
+# Use toolchain_folder as found in common dinghy.toml examples
+toolchain_folder = "/home/njr/Android/Sdk/ndk/29.0.14206865"
+# Android API level
+android_api = 30
+# Whether to use a simulator
+simulator = false

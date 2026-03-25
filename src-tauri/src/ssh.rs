@@ -67,6 +67,7 @@ pub struct SshConfig {
 pub enum SessionMsg {
     Data(Vec<u8>),
     Resize { rows: u32, cols: u32 },
+    Mouse { x: f32, y: f32, action: String },
 }
 
 pub struct Client {}
@@ -131,12 +132,14 @@ async fn authenticate(
 pub struct SshManager {
     // Stores the write handle for each active session
     pub active_sessions: Arc<Mutex<HashMap<String, mpsc::Sender<SessionMsg>>>>,
+    pub focused_session: Arc<Mutex<Option<String>>>,
 }
 
 impl SshManager {
     pub fn new() -> Self {
         Self {
             active_sessions: Arc::new(Mutex::new(HashMap::new())),
+            focused_session: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -240,6 +243,13 @@ impl SshManager {
                                 }
                                 ts.resize(cols as u16, rows as u16);
                             }
+                            Some(SessionMsg::Mouse { x, y, action }) => {
+                                if let Some(encoded) = ts.encode_mouse_event(x, y, &action) {
+                                    if let Err(e) = channel.data(&encoded[..]).await {
+                                        error!("Failed to write mouse data to SSH channel for tab {}: {}", tab_id_spawn, e);
+                                    }
+                                }
+                            }
                             None => break,
                         }
                     }
@@ -262,6 +272,9 @@ impl SshManager {
                     }
                     _ = flush_interval.tick() => {
                         if ts.is_dirty() {
+                            // Phase 3: Trigger native wgpu rendering
+                            ts.render_native();
+
                             // Strategy 1: Send only the visible viewport rendered by Rust.
                             // This eliminates double-parsing (Rust and JS both parsing ANSI).
                             let mouse_mode = ts.get_mouse_mode();
@@ -280,6 +293,12 @@ impl SshManager {
         });
 
         self.active_sessions.lock().await.insert(tab_id.clone(), tx);
+        {
+            let mut focused = self.focused_session.lock().await;
+            if focused.is_none() {
+                *focused = Some(tab_id.clone());
+            }
+        }
         info!("SSH connection established for tab: {}", tab_id);
         Ok(())
     }
@@ -316,6 +335,14 @@ impl SshManager {
         info!("Disconnecting SSH session for tab: {}", tab_id);
         let mut active = self.active_sessions.lock().await;
         active.remove(&tab_id);
+    }
+
+    pub async fn process_touch(&self, action: String, x: f32, y: f32) -> Result<(), String> {
+        let tab_id = {
+            let focused = self.focused_session.lock().await;
+            focused.clone().ok_or("No focused session")?
+        };
+        self.send_to_session(&tab_id, SessionMsg::Mouse { x, y, action }).await
     }
 }
 

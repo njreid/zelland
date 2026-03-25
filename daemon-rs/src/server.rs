@@ -42,6 +42,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/projects/activate",
             post(handlers::projects::activate_project),
         )
+        .route("/api/v1/projects/{id}/files", get(handlers::projects::list_project_files))
         .route("/api/v1/fs/read", get(handlers::fs::read_file))
         .route("/api/v1/fs/annotate", post(handlers::fs::annotate_file))
         .route(
@@ -228,6 +229,37 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         assert_eq!(&body[..], b"hello world");
+    }
+
+    /// Regression: the client previously sent "projectId/projectId/README.md" because it
+    /// prepended the project directory name to a filename that already contained it.
+    /// The daemon must serve "projectId/README.md" from <projects_path>/projectId/README.md.
+    #[tokio::test]
+    async fn test_fs_read_project_nested_md() {
+        let state = test_state();
+        let proj_dir = state.config.projects_path.join("myproject");
+        std::fs::create_dir_all(&proj_dir).unwrap();
+        std::fs::write(proj_dir.join("README.md"), "# Hello").unwrap();
+
+        let app = build_router(state);
+
+        // Correct path: "myproject/README.md"
+        let resp = app.clone()
+            .oneshot(Request::builder()
+                .uri("/api/v1/fs/read?path=myproject/README.md")
+                .body(Body::empty()).unwrap())
+            .await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&body[..], b"# Hello");
+
+        // Doubled path should 404 — there is no "myproject/myproject/README.md".
+        let resp = app
+            .oneshot(Request::builder()
+                .uri("/api/v1/fs/read?path=myproject/myproject/README.md")
+                .body(Body::empty()).unwrap())
+            .await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

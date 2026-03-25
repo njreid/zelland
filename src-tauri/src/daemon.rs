@@ -187,6 +187,23 @@ pub async fn daemon_activate_project(state: tauri::State<'_, DaemonManager>, url
     Ok(())
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct ProjectFiles {
+    pub root_md: Vec<String>,
+    pub docs_md: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn daemon_list_project_files(state: tauri::State<'_, DaemonManager>, url: String, project_id: String) -> Result<ProjectFiles, String> {
+    debug!("Listing files for project {} from daemon: {}", project_id, url);
+    let res = state.http_client
+        .get(format!("{}/api/v1/projects/{}/files", url, project_id))
+        .send().await
+        .map_err(|e| { error!("Failed to list project files: {}", e); e.to_string() })?;
+    res.json::<ProjectFiles>().await
+        .map_err(|e| { error!("Failed to parse project files: {}", e); e.to_string() })
+}
+
 #[tauri::command]
 pub async fn daemon_read_file(state: tauri::State<'_, DaemonManager>, url: String, path: String) -> Result<String, String> {
     debug!("Reading file via daemon: {} from {}", path, url);

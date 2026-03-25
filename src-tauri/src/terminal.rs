@@ -1,58 +1,33 @@
-use alacritty_terminal::term::{Term, Config, TermMode};
-use alacritty_terminal::term::cell::{Cell, Flags};
-use alacritty_terminal::event::EventListener;
-use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
-
-struct TermEventProxy;
-
-impl EventListener for TermEventProxy {
-    fn send_event(&self, _: alacritty_terminal::event::Event) {}
-}
-
-/// Minimal Dimensions impl for creating / resizing a Term.
-struct TermSize {
-    cols: usize,
-    rows: usize,
-}
-
-impl Dimensions for TermSize {
-    fn total_lines(&self) -> usize { self.rows } // No scrollback history
-    fn screen_lines(&self) -> usize { self.rows }
-    fn columns(&self) -> usize { self.cols }
-}
+use crate::ghostty::*;
 
 pub struct TerminalSession {
-    term: Term<TermEventProxy>,
-    processor: Processor,
+    term: GhosttyTerminalWrapper,
+    render_state: GhosttyRenderStateWrapper,
     render_buf: Vec<u8>,
     dirty: bool,
 }
 
 impl TerminalSession {
     pub fn new(cols: u16, rows: u16) -> Self {
-        let config = Config {
-            scrolling_history: 0, // Requested: no clientside scrollback
-            ..Config::default()
-        };
-        let size = TermSize { cols: cols as usize, rows: rows as usize };
-        let term = Term::new(config, &size, TermEventProxy);
-        let processor = Processor::new();
+        let term = GhosttyTerminalWrapper::new(cols, rows).expect("Failed to create Ghostty terminal");
+        let render_state = GhosttyRenderStateWrapper::new().expect("Failed to create Ghostty render state");
+        
         Self { 
             term, 
-            processor,
+            render_state,
             render_buf: Vec::with_capacity(8192),
             dirty: true,
         }
     }
 
     pub fn process_bytes(&mut self, data: &[u8]) {
-        self.processor.advance(&mut self.term, data);
+        self.term.write(data);
         self.dirty = true;
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) {
-        self.term.resize(TermSize { cols: cols as usize, rows: rows as usize });
+        // Pixel sizes are currently approximated or zeroed since we're in Phase 1 (JS rendering)
+        self.term.resize(cols, rows, 0, 0).expect("Failed to resize Ghostty terminal");
         self.dirty = true;
     }
 
@@ -61,198 +36,218 @@ impl TerminalSession {
     }
 
     pub fn get_mouse_mode(&self) -> bool {
-        self.term.mode().intersects(
-            TermMode::MOUSE_REPORT_CLICK | 
-            TermMode::MOUSE_DRAG | 
-            TermMode::MOUSE_MOTION
-        )
+        self.term.get_mouse_tracking()
     }
 
     pub fn get_cursor_pos(&self) -> (u16, u16) {
-        let cursor = self.term.grid().cursor.point;
-        (cursor.column.0 as u16, cursor.line.0 as u16)
+        self.term.get_cursor_pos()
+    }
+
+    /// Encode a mouse event as an ANSI escape sequence (SGR protocol).
+    pub fn encode_mouse_event(&self, x_px: f32, y_px: f32, action: &str) -> Option<Vec<u8>> {
+        // Approximate grid coordinates (Phase 3 cleanup will use actual font metrics)
+        let col = (x_px / 24.0) as u16;
+        let row = (y_px / 32.0) as u16;
+
+        let mut encoder: GhosttyMouseEncoder = std::ptr::null_mut();
+        unsafe {
+            ghostty_mouse_encoder_new(std::ptr::null(), &mut encoder);
+            ghostty_mouse_encoder_setopt_from_terminal(encoder, self.term.inner);
+        }
+
+        let event = GhosttyMouseEvent {
+            x: col,
+            y: row,
+            button: match action {
+                "click" => GhosttyMouseEventButton_GHOSTTY_MOUSE_EVENT_BUTTON_LEFT,
+                "right_click" => GhosttyMouseEventButton_GHOSTTY_MOUSE_EVENT_BUTTON_RIGHT,
+                _ => GhosttyMouseEventButton_GHOSTTY_MOUSE_EVENT_BUTTON_NONE,
+            },
+            modifiers: 0,
+            action: GhosttyMouseEventAction_GHOSTTY_MOUSE_EVENT_ACTION_PRESS,
+        };
+
+        let mut buf = [0u8; 64];
+        let len = unsafe {
+            ghostty_mouse_encoder_encode(encoder, event, buf.as_mut_ptr(), buf.len())
+        };
+
+        unsafe { ghostty_mouse_encoder_free(encoder); }
+
+        if len > 0 {
+            Some(buf[..len as usize].to_vec())
+        } else {
+            None
+        }
+    }
+
+    /// Render using the native wgpu renderer if available.
+    pub fn render_native(&mut self) {
+        self.dirty = false;
+        self.render_state.update(&self.term).expect("Failed to update render state");
+        
+        crate::renderer::with_renderer(|renderer| {
+            renderer.draw_ghostty_state(&mut self.render_state);
+            renderer.render();
+        });
+
+        self.render_state.reset_dirty();
     }
 
     /// Render the currently-visible viewport as ANSI escape sequences.
     /// Reuses an internal buffer to minimize allocations.
     pub fn render_viewport(&mut self) -> &[u8] {
         self.dirty = false;
+        self.render_state.update(&self.term).expect("Failed to update render state");
+        
         self.render_buf.clear();
         // SGR reset + Cursor home + erase display
         self.render_buf.extend_from_slice(b"\x1b[0m\x1b[H\x1b[2J");
 
-        let grid = self.term.grid();
-        let mut prev_fg = Color::Named(NamedColor::Foreground);
-        let mut prev_bg = Color::Named(NamedColor::Background);
-        let mut prev_flags = Flags::empty();
-        let mut last_line = None;
+        let mut prev_style: Option<GhosttyStyle> = None;
+        let mut last_line: Option<u16> = None;
 
-        for indexed in grid.display_iter() {
-            let line = indexed.point.line.0;
-            let cell: &Cell = indexed.cell;
-
-            // Explicitly move to the start of the row when the line changes.
-            // This bypasses xterm.js auto-wrapping which causes extra newlines
-            // when combined with explicit \r\n.
+        // Ghostty uses a row iterator
+        self.render_state.with_rows(|line, cells| {
+            // Move to start of line
             if Some(line) != last_line {
                 self.render_buf.extend_from_slice(b"\x1b[");
-                push_u8(&mut self.render_buf, (line as u8).wrapping_add(1));
+                push_u16(&mut self.render_buf, line.wrapping_add(1));
                 self.render_buf.extend_from_slice(b";1H");
                 last_line = Some(line);
             }
 
-            // Emit SGR sequence only when attributes change
-            if cell.fg != prev_fg || cell.bg != prev_bg || cell.flags != prev_flags {
-                write_sgr(&mut self.render_buf, cell.fg, cell.bg, cell.flags);
-                prev_fg = cell.fg;
-                prev_bg = cell.bg;
-                prev_flags = cell.flags;
+            while unsafe { ghostty_render_state_row_cells_next(*cells) } {
+                let style = get_cell_style(*cells);
+                
+                // Emit SGR sequence only when attributes change
+                if prev_style.as_ref().map_or(true, |p| !styles_equal(p, &style)) {
+                    write_sgr_ghostty(&mut self.render_buf, &style);
+                    prev_style = Some(style);
+                }
+
+                let graphemes = get_cell_graphemes(*cells);
+                if graphemes.is_empty() {
+                    self.render_buf.push(b' ');
+                } else {
+                    for &cp in &graphemes {
+                        if let Some(c) = std::char::from_u32(cp) {
+                            let mut buf = [0u8; 4];
+                            self.render_buf.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+                        }
+                    }
+                }
             }
+        });
 
-            if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
-                continue;
-            }
-
-            let c = if cell.c == '\0' { ' ' } else { cell.c };
-            let mut buf = [0u8; 4];
-            self.render_buf.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-        }
-
-        // Place the cursor at its actual position before sending the snapshot
+        // Place the cursor at its actual position
         let (column, line) = self.get_cursor_pos();
         self.render_buf.extend_from_slice(b"\x1b[");
-        push_u8(&mut self.render_buf, (line as u8).wrapping_add(1));
+        push_u16(&mut self.render_buf, line.wrapping_add(1));
         self.render_buf.push(b';');
-        push_u8(&mut self.render_buf, (column as u8).wrapping_add(1));
+        push_u16(&mut self.render_buf, column.wrapping_add(1));
         self.render_buf.push(b'H');
 
         self.render_buf.extend_from_slice(b"\x1b[0m"); // SGR reset
+        self.render_state.reset_dirty();
+        
         &self.render_buf
     }
 }
 
-fn write_sgr(out: &mut Vec<u8>, fg: Color, bg: Color, flags: Flags) {
+fn styles_equal(a: &GhosttyStyle, b: &GhosttyStyle) -> bool {
+    a.bold == b.bold &&
+    a.italic == b.italic &&
+    a.faint == b.faint &&
+    a.blink == b.blink &&
+    a.inverse == b.inverse &&
+    a.invisible == b.invisible &&
+    a.strikethrough == b.strikethrough &&
+    a.overline == b.overline &&
+    a.underline == b.underline &&
+    colors_equal(&a.fg_color, &b.fg_color) &&
+    colors_equal(&a.bg_color, &b.bg_color)
+}
+
+#[allow(non_upper_case_globals)]
+fn colors_equal(a: &GhosttyStyleColor, b: &GhosttyStyleColor) -> bool {
+    if a.tag != b.tag { return false; }
+    match a.tag {
+        GhosttyStyleColorTag_GHOSTTY_STYLE_COLOR_NONE => true,
+        GhosttyStyleColorTag_GHOSTTY_STYLE_COLOR_PALETTE => unsafe { a.value.palette == b.value.palette },
+        GhosttyStyleColorTag_GHOSTTY_STYLE_COLOR_RGB => unsafe { 
+            a.value.rgb.r == b.value.rgb.r && 
+            a.value.rgb.g == b.value.rgb.g && 
+            a.value.rgb.b == b.value.rgb.b 
+        },
+        _ => true,
+    }
+}
+
+#[allow(non_upper_case_globals)]
+fn write_sgr_ghostty(out: &mut Vec<u8>, style: &GhosttyStyle) {
     out.extend_from_slice(b"\x1b[0");
 
-    if flags.contains(Flags::BOLD)      { out.extend_from_slice(b";1"); }
-    if flags.contains(Flags::DIM)       { out.extend_from_slice(b";2"); }
-    if flags.contains(Flags::ITALIC)    { out.extend_from_slice(b";3"); }
-    if flags.contains(Flags::UNDERLINE) { out.extend_from_slice(b";4"); }
-    if flags.contains(Flags::INVERSE)   { out.extend_from_slice(b";7"); }
-    if flags.contains(Flags::HIDDEN)    { out.extend_from_slice(b";8"); }
-    if flags.contains(Flags::STRIKEOUT) { out.extend_from_slice(b";9"); }
+    if style.bold          { out.extend_from_slice(b";1"); }
+    if style.faint         { out.extend_from_slice(b";2"); }
+    if style.italic        { out.extend_from_slice(b";3"); }
+    // Ghostty underline is an int (None=0, Single=1, etc.)
+    if style.underline > 0 { out.extend_from_slice(b";4"); }
+    if style.inverse       { out.extend_from_slice(b";7"); }
+    if style.invisible     { out.extend_from_slice(b";8"); }
+    if style.strikethrough { out.extend_from_slice(b";9"); }
 
-    push_fg_color(out, fg);
-    push_bg_color(out, bg);
+    push_ghostty_color(out, &style.fg_color, false);
+    push_ghostty_color(out, &style.bg_color, true);
 
     out.push(b'm');
 }
 
-fn push_u8(out: &mut Vec<u8>, mut n: u8) {
-    if n >= 100 { 
-        out.push(b'0' + n / 100); 
+#[allow(non_upper_case_globals)]
+fn push_ghostty_color(out: &mut Vec<u8>, color: &GhosttyStyleColor, is_bg: bool) {
+    let prefix = if is_bg { b";48" } else { b";38" };
+    match color.tag {
+        GhosttyStyleColorTag_GHOSTTY_STYLE_COLOR_NONE => {},
+        GhosttyStyleColorTag_GHOSTTY_STYLE_COLOR_PALETTE => {
+            out.extend_from_slice(prefix);
+            out.extend_from_slice(b";5;");
+            push_u16(out, unsafe { color.value.palette } as u16);
+        }
+        GhosttyStyleColorTag_GHOSTTY_STYLE_COLOR_RGB => {
+            out.extend_from_slice(prefix);
+            out.extend_from_slice(b";2;");
+            let rgb = unsafe { color.value.rgb };
+            push_u16(out, rgb.r as u16); out.push(b';');
+            push_u16(out, rgb.g as u16); out.push(b';');
+            push_u16(out, rgb.b as u16);
+        }
+        _ => {}
+    }
+}
+
+fn push_u16(out: &mut Vec<u8>, mut n: u16) {
+    if n >= 10000 {
+        out.push(b'0' + (n / 10000) as u8);
+        n %= 10000;
+        out.push(b'0' + (n / 1000) as u8);
+        n %= 1000;
+        out.push(b'0' + (n / 100) as u8);
         n %= 100;
-        out.push(b'0' + n / 10);
+        out.push(b'0' + (n / 10) as u8);
+    } else if n >= 1000 {
+        out.push(b'0' + (n / 1000) as u8);
+        n %= 1000;
+        out.push(b'0' + (n / 100) as u8);
+        n %= 100;
+        out.push(b'0' + (n / 10) as u8);
+    } else if n >= 100 { 
+        out.push(b'0' + (n / 100) as u8); 
+        n %= 100;
+        out.push(b'0' + (n / 10) as u8);
     } else if n >= 10 {
-        out.push(b'0' + n / 10);
+        out.push(b'0' + (n / 10) as u8);
     }
-    out.push(b'0' + n % 10);
-}
-
-fn push_fg_color(out: &mut Vec<u8>, color: Color) {
-    match color {
-        Color::Named(n) => {
-            let code = named_fg_code(n);
-            if code != 39 {
-                out.push(b';');
-                push_u8(out, code);
-            }
-        }
-        Color::Indexed(i) => {
-            out.extend_from_slice(b";38;5;");
-            push_u8(out, i);
-        }
-        Color::Spec(Rgb { r, g, b }) => {
-            out.extend_from_slice(b";38;2;");
-            push_u8(out, r); out.push(b';');
-            push_u8(out, g); out.push(b';');
-            push_u8(out, b);
-        }
-    }
-}
-
-fn push_bg_color(out: &mut Vec<u8>, color: Color) {
-    match color {
-        Color::Named(n) => {
-            let code = named_bg_code(n);
-            if code != 49 {
-                out.push(b';');
-                push_u8(out, code);
-            }
-        }
-        Color::Indexed(i) => {
-            out.extend_from_slice(b";48;5;");
-            push_u8(out, i);
-        }
-        Color::Spec(Rgb { r, g, b }) => {
-            out.extend_from_slice(b";48;2;");
-            push_u8(out, r); out.push(b';');
-            push_u8(out, g); out.push(b';');
-            push_u8(out, b);
-        }
-    }
-}
-
-fn named_fg_code(c: NamedColor) -> u8 {
-    match c {
-        NamedColor::Black          => 30,
-        NamedColor::Red            => 31,
-        NamedColor::Green          => 32,
-        NamedColor::Yellow         => 33,
-        NamedColor::Blue           => 34,
-        NamedColor::Magenta        => 35,
-        NamedColor::Cyan           => 36,
-        NamedColor::White          => 37,
-        NamedColor::BrightBlack    => 90,
-        NamedColor::BrightRed      => 91,
-        NamedColor::BrightGreen    => 92,
-        NamedColor::BrightYellow   => 93,
-        NamedColor::BrightBlue     => 94,
-        NamedColor::BrightMagenta  => 95,
-        NamedColor::BrightCyan     => 96,
-        NamedColor::BrightWhite    => 97,
-        NamedColor::DimBlack       => 30,
-        NamedColor::DimRed         => 31,
-        NamedColor::DimGreen       => 32,
-        NamedColor::DimYellow      => 33,
-        NamedColor::DimBlue        => 34,
-        NamedColor::DimMagenta     => 35,
-        NamedColor::DimCyan        => 36,
-        NamedColor::DimWhite       => 37,
-        _ => 39,
-    }
-}
-
-fn named_bg_code(c: NamedColor) -> u8 {
-    match c {
-        NamedColor::Black          => 40,
-        NamedColor::Red            => 41,
-        NamedColor::Green          => 42,
-        NamedColor::Yellow         => 43,
-        NamedColor::Blue           => 44,
-        NamedColor::Magenta        => 45,
-        NamedColor::Cyan           => 46,
-        NamedColor::White          => 47,
-        NamedColor::BrightBlack    => 100,
-        NamedColor::BrightRed      => 101,
-        NamedColor::BrightGreen    => 102,
-        NamedColor::BrightYellow   => 103,
-        NamedColor::BrightBlue     => 104,
-        NamedColor::BrightMagenta  => 105,
-        NamedColor::BrightCyan     => 106,
-        NamedColor::BrightWhite    => 107,
-        _ => 49,
-    }
+    out.push(b'0' + (n % 10) as u8);
 }
 
 #[cfg(test)]
@@ -271,15 +266,18 @@ mod tests {
     }
 
     #[test]
-    fn test_push_u8() {
+    fn test_push_u16() {
         let mut buf = Vec::new();
-        push_u8(&mut buf, 0);
+        push_u16(&mut buf, 0);
         assert_eq!(buf, b"0");
         buf.clear();
-        push_u8(&mut buf, 42);
+        push_u16(&mut buf, 42);
         assert_eq!(buf, b"42");
         buf.clear();
-        push_u8(&mut buf, 255);
+        push_u16(&mut buf, 255);
         assert_eq!(buf, b"255");
+        buf.clear();
+        push_u16(&mut buf, 1234);
+        assert_eq!(buf, b"1234");
     }
 }

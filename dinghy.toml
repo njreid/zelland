@@ -1,0 +1,5 @@
+[platforms.android-aarch64]
+rustc_triple = "aarch64-linux-android"
+ndk_path = "/home/njr/Android/Sdk/ndk/29.0.14206865"
+android_api = 30
+simulator = false

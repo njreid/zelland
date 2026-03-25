@@ -11,6 +11,7 @@
     import AnnotationForm from './AnnotationForm.svelte';
     import { MessageSquareText } from 'lucide-svelte';
     import { platform } from '@tauri-apps/plugin-os';
+    import { daemonFilepath } from '$lib/utils/markdown-path';
 
     // Mermaid is heavy — load it lazily only when a diagram needs rendering.
     let _mermaid: typeof import('mermaid').default | null = null;
@@ -93,13 +94,10 @@
 
     function getActiveSessionInfo() {
         const activeSession = appState.activeSession;
-        const project = appState.activeProject;
-        if (!activeSession || !project?.root_path) return null;
+        if (!activeSession) return null;
 
-        const projectName = project.root_path.split('/').filter(Boolean).pop() ?? '';
-        const filepath = `${projectName}/${filename}`;
-
-        return { hostAddress: activeSession.hostAddress, filepath, rootPath: project.root_path };
+        // filename is already "projectId/relative/path.md" — pass it directly to the daemon.
+        return { hostAddress: activeSession.hostAddress, filepath: daemonFilepath(filename) };
     }
 
     function getAuthor(): string {

@@ -114,6 +114,12 @@ tasks:
     cmds:
       - cargo test
 
+  "test:android":
+    desc: "Run Rust tests on a connected Android device using Dinghy"
+    dir: src-tauri
+    cmds:
+      - cargo dinghy -d android-aarch64 test
+
   "test":
     desc: "Run tests"
     cmds:

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { load } from "@tauri-apps/plugin-store";
+import { insertOrdered } from '$lib/utils/md-ordering';
 
 export interface Project {
     id: string;
@@ -65,7 +66,8 @@ function createAppState() {
     let terminalResizeTrigger = $state(0);
     let viewUpdateTrigger = $state<Record<string, number>>({});
     let loadedFiles = $state<Record<string, boolean>>({});
-    let openMarkdownFiles = $state<string[]>(['README.md', 'PLAN.md', 'DESIGN.md']);
+    let openMarkdownFiles = $state<string[]>([]);
+    let projectMdFiles = $state<{ root: string[]; docs: string[] }>({ root: [], docs: [] });
     let navigationTrigger = $state(-1);
     let recentSessionIds = $state<string[]>([]);
     let terminalFontSize = $state(14);
@@ -95,6 +97,28 @@ function createAppState() {
             .map(id => sessions.find(s => s.id === id))
             .filter((s): s is Session => s !== undefined)
     );
+
+    // --- MD file ordering (logic in src/lib/utils/md-ordering.ts) ---
+    const PRIORITY_ORDER = ['README.md', 'DESIGN.md', 'PLAN.md'];
+
+    async function loadProjectFiles(hostAddress: string, projectId: string) {
+        try {
+            const files = await invoke<{ root_md: string[]; docs_md: string[] }>(
+                'daemon_list_project_files',
+                { url: `http://${hostAddress}:8083`, projectId }
+            );
+            projectMdFiles = { root: files.root_md, docs: files.docs_md };
+            // Auto-open priority files that exist in the project
+            for (const name of PRIORITY_ORDER) {
+                if (files.root_md.includes(name)) {
+                    const fullPath = `${projectId}/${name}`;
+                    openMarkdownFiles = insertOrdered(openMarkdownFiles, fullPath);
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load project files:', e);
+        }
+    }
 
     // --- Helpers ---
     function log(message: string, type: 'info' | 'error' = 'info') {
@@ -243,12 +267,8 @@ function createAppState() {
 
         openMarkdownFile(filename: string) {
             const cleanName = filename.startsWith('./') ? filename.slice(2) : filename;
-            let index = openMarkdownFiles.indexOf(cleanName);
-            if (index === -1) {
-                openMarkdownFiles.push(cleanName);
-                index = openMarkdownFiles.length - 1;
-            }
-            this.scrollToPane(index + 1);
+            openMarkdownFiles = insertOrdered(openMarkdownFiles, cleanName);
+            this.scrollToPane(openMarkdownFiles.indexOf(cleanName) + 1);
         },
 
         triggerTerminalFocus() { terminalFocusTrigger += 1; },
@@ -345,8 +365,18 @@ function createAppState() {
             invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` })
                 .then(() => { daemonConnected = true; })
                 .catch(() => { daemonConnected = false; });
-            
+
             this.triggerTerminalResize();
+
+            // Fetch .md files for the newly connected project
+            const connectedSession = sessions.find(s => s.id === sessionId);
+            if (connectedSession) {
+                const host = hosts.find(h => h.address === connectedSession.hostAddress);
+                const project = host?.projects.find(p => p.session_name === connectedSession.zellijSession);
+                if (host && project) {
+                    loadProjectFiles(host.address, project.id);
+                }
+            }
         },
 
         onSessionConnectionFailed(sessionId: string, error: string) {
@@ -359,7 +389,11 @@ function createAppState() {
         onSessionClosed(sessionId: string) {
             const session = sessions.find(s => s.id === sessionId);
             if (session) session.status = 'disconnected';
-            if (activeSessionId === sessionId) activeSessionId = null;
+            if (activeSessionId === sessionId) {
+                activeSessionId = null;
+                projectMdFiles = { root: [], docs: [] };
+                openMarkdownFiles = [];
+            }
         },
 
         async activateProject(hostId: string, projectId: string) {
@@ -494,6 +528,16 @@ function createAppState() {
                 log(`Received view update: ${req.title}`);
                 if (!viewUpdateTrigger[req.title]) viewUpdateTrigger[req.title] = 0;
                 viewUpdateTrigger[req.title] += 1;
+                // If a new .md file appeared, add it to projectMdFiles if it belongs to the active project
+                const title = req.title as string;
+                if (title.endsWith('.md') && activeProject) {
+                    if (!projectMdFiles.root.includes(title) && !projectMdFiles.docs.includes(title)) {
+                        projectMdFiles = {
+                            ...projectMdFiles,
+                            root: [...projectMdFiles.root, title].sort()
+                        };
+                    }
+                }
             }
         });
 
@@ -579,6 +623,7 @@ function createAppState() {
         get terminalResizeTrigger() { return terminalResizeTrigger; },
         get navigationTrigger() { return navigationTrigger; },
         get openMarkdownFiles() { return openMarkdownFiles; },
+        get projectMdFiles() { return projectMdFiles; },
         get loadedFiles() { return loadedFiles; },
         get logs() { return logs; },
         get sshKeys() { return sshKeys; },
