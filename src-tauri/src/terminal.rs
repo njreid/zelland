@@ -45,37 +45,57 @@ impl TerminalSession {
 
     /// Encode a mouse event as an ANSI escape sequence (SGR protocol).
     pub fn encode_mouse_event(&self, x_px: f32, y_px: f32, action: &str) -> Option<Vec<u8>> {
-        // Approximate grid coordinates (Phase 3 cleanup will use actual font metrics)
-        let col = (x_px / 24.0) as u16;
-        let row = (y_px / 32.0) as u16;
-
         let mut encoder: GhosttyMouseEncoder = std::ptr::null_mut();
+        let mut event: GhosttyMouseEvent = std::ptr::null_mut();
+
         unsafe {
             ghostty_mouse_encoder_new(std::ptr::null(), &mut encoder);
             ghostty_mouse_encoder_setopt_from_terminal(encoder, self.term.inner);
+            
+            ghostty_mouse_event_new(std::ptr::null(), &mut event);
+            
+            ghostty_mouse_event_set_position(event, GhosttyMousePosition { x: x_px, y: y_px });
+            
+            let ghostty_action = match action {
+                "click" => GHOSTTY_MOUSE_ACTION_PRESS,
+                "release" => GHOSTTY_MOUSE_ACTION_RELEASE,
+                _ => GHOSTTY_MOUSE_ACTION_PRESS,
+            };
+            ghostty_mouse_event_set_action(event, ghostty_action);
+
+            let button = match action {
+                "click" | "release" => GHOSTTY_MOUSE_BUTTON_LEFT,
+                "right_click" => GHOSTTY_MOUSE_BUTTON_RIGHT,
+                _ => GHOSTTY_MOUSE_BUTTON_UNKNOWN,
+            };
+            if button != GHOSTTY_MOUSE_BUTTON_UNKNOWN {
+                ghostty_mouse_event_set_button(event, button);
+            } else {
+                ghostty_mouse_event_clear_button(event);
+            }
+
+            ghostty_mouse_event_set_mods(event, 0);
         }
 
-        let event = GhosttyMouseEvent {
-            x: col,
-            y: row,
-            button: match action {
-                "click" => GhosttyMouseEventButton_GHOSTTY_MOUSE_EVENT_BUTTON_LEFT,
-                "right_click" => GhosttyMouseEventButton_GHOSTTY_MOUSE_EVENT_BUTTON_RIGHT,
-                _ => GhosttyMouseEventButton_GHOSTTY_MOUSE_EVENT_BUTTON_NONE,
-            },
-            modifiers: 0,
-            action: GhosttyMouseEventAction_GHOSTTY_MOUSE_EVENT_ACTION_PRESS,
-        };
-
         let mut buf = [0u8; 64];
-        let len = unsafe {
-            ghostty_mouse_encoder_encode(encoder, event, buf.as_mut_ptr(), buf.len())
+        let mut out_len: usize = 0;
+        let res = unsafe {
+            ghostty_mouse_encoder_encode(
+                encoder,
+                event,
+                buf.as_mut_ptr() as *mut i8,
+                buf.len(),
+                &mut out_len,
+            )
         };
 
-        unsafe { ghostty_mouse_encoder_free(encoder); }
+        unsafe {
+            ghostty_mouse_event_free(event);
+            ghostty_mouse_encoder_free(encoder);
+        }
 
-        if len > 0 {
-            Some(buf[..len as usize].to_vec())
+        if res == GhosttyResult_GHOSTTY_SUCCESS && out_len > 0 {
+            Some(buf[..out_len].to_vec())
         } else {
             None
         }

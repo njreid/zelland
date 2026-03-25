@@ -9,6 +9,7 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JObject};
 use log::{info, error};
 use once_cell::sync::Lazy;
+use tauri::Manager;
 use glyphon::{
     FontSystem, SwashCache, TextAtlas, TextRenderer, Viewport,
     Resolution, TextArea, TextBounds, Color, Metrics,
@@ -71,7 +72,7 @@ impl Renderer {
         let cache_format = wgpu::TextureFormat::Rgba8UnormSrgb; // Common format
         let atlas = TextAtlas::new(&device, &queue, &swash_cache, cache_format);
         let text_renderer = TextRenderer::new(&atlas, &device, wgpu::MultisampleState::default(), None);
-        let viewport = Viewport::new(&device, &cache_format);
+        let viewport = Viewport::new(&device, atlas.cache());
         let text_buffer = glyphon::Buffer::new(&mut font_system, Metrics::new(CELL_HEIGHT * 0.75, CELL_HEIGHT));
 
         let mut renderer = RENDERER.lock().unwrap();
@@ -121,7 +122,7 @@ impl Renderer {
         self.config = Some(config);
         
         // Re-initialize viewport with correct format
-        self.viewport = Viewport::new(&self.device, &caps.formats[0]);
+        self.viewport = Viewport::new(&self.device, self.atlas.cache());
         
         info!("wgpu surface and viewport configured");
     }
@@ -137,7 +138,7 @@ impl Renderer {
     }
 
     pub fn render(&mut self) {
-        let (surface, config) = match (self.surface.as_ref(), self.config.as_ref()) {
+        let (surface, _config) = match (self.surface.as_ref(), self.config.as_ref()) {
             (Some(s), Some(c)) => (s, c),
             _ => return,
         };
