@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 use std::collections::HashMap;
 use std::future::Future;
-use log::{info, error, debug};
+use log::{info, error, debug, warn};
 use tauri::ipc::Channel;
 use crate::keystore::KeyManager;
 use crate::terminal::TerminalSession;
@@ -249,6 +249,7 @@ impl SshManager {
                             }
                             Some(SessionMsg::ProcessMouse { x, y, action }) => {
                                 let sequences = ts.process_mouse(x, y, &action);
+                                log::info!("[TouchDebug] ProcessMouse action={} → {} sequence(s) to send", action, sequences.len());
                                 for seq in sequences {
                                     if let Err(e) = channel.data(&seq[..]).await {
                                         error!("Failed to write mouse process data to SSH channel for tab {}: {}", tab_id_spawn, e);
@@ -341,9 +342,16 @@ impl SshManager {
     pub async fn process_touch(&self, action: String, x: f32, y: f32) -> Result<(), String> {
         let tab_id = {
             let focused = self.focused_session.lock().await;
-            focused.clone().ok_or("No focused session")?
+            match focused.clone() {
+                Some(id) => { info!("[TouchDebug] process_touch: action={} focused_session={}", action, id); id }
+                None => { warn!("[TouchDebug] process_touch: action={} but NO focused session", action); return Err("No focused session".into()); }
+            }
         };
-        self.send_to_session(&tab_id, SessionMsg::ProcessMouse { x, y, action }).await
+        let result = self.send_to_session(&tab_id, SessionMsg::ProcessMouse { x, y, action: action.clone() }).await;
+        if let Err(ref e) = result {
+            warn!("[TouchDebug] send_to_session failed for tab {}: {}", tab_id, e);
+        }
+        result
     }
 }
 

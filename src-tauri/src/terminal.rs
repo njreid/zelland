@@ -50,8 +50,11 @@ impl TerminalSession {
     /// Handles complex interactions like scroll wheel "clicks" (Press + Release).
     pub fn process_mouse(&self, x: f32, y: f32, action: &str) -> Vec<Vec<u8>> {
         let mut sequences = Vec::new();
+        let mouse_mode = self.get_mouse_mode();
+        log::info!("[TouchDebug] process_mouse: action={} x={} y={} mouse_mode={}", action, x, y, mouse_mode);
 
-        if !self.get_mouse_mode() {
+        if !mouse_mode {
+            log::warn!("[TouchDebug] process_mouse: mouse_mode=false — zellij has not yet sent \\x1b[?1000h, event dropped");
             return sequences;
         }
 
@@ -101,12 +104,18 @@ impl TerminalSession {
             ghostty_mouse_encoder_setopt_from_terminal(encoder, self.term.inner);
 
             let (cols, rows) = self.term.get_size();
+            // Use the renderer's live cell dimensions so the pixel→cell mapping
+            // matches what is actually rendered. The compile-time constants are
+            // only a fallback for when no renderer exists yet.
+            let (cell_w, cell_h) = crate::renderer::get_cell_size();
+            log::info!("[TouchDebug] encode_mouse_event: action={} x={} y={} cols={} rows={} cell={}x{}",
+                action, x_px, y_px, cols, rows, cell_w, cell_h);
             let size = GhosttyMouseEncoderSize {
                 size: std::mem::size_of::<GhosttyMouseEncoderSize>(),
-                screen_width: (cols as u32) * crate::renderer::CELL_WIDTH as u32,
-                screen_height: (rows as u32) * crate::renderer::CELL_HEIGHT as u32,
-                cell_width: crate::renderer::CELL_WIDTH as u32,
-                cell_height: crate::renderer::CELL_HEIGHT as u32,
+                screen_width: (cols as u32) * cell_w as u32,
+                screen_height: (rows as u32) * cell_h as u32,
+                cell_width: cell_w as u32,
+                cell_height: cell_h as u32,
                 padding_top: 0,
                 padding_bottom: 0,
                 padding_right: 0,
@@ -162,8 +171,13 @@ impl TerminalSession {
         }
 
         if res == GhosttyResult_GHOSTTY_SUCCESS && out_len > 0 {
-            Some(buf[..out_len].to_vec())
+            let seq = &buf[..out_len];
+            log::info!("[TouchDebug] encode_mouse_event: encoded {} bytes: {:?}",
+                out_len, String::from_utf8_lossy(seq));
+            Some(seq.to_vec())
         } else {
+            log::warn!("[TouchDebug] encode_mouse_event: encoder returned nothing — res={} out_len={} action={}",
+                res, out_len, action);
             None
         }
     }

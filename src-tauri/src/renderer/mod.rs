@@ -129,12 +129,16 @@ impl Renderer {
             }
         };
 
+        let adapter_limits = adapter.limits();
+        info!("[ResizeDebug] adapter max_texture_dimension_2d: {}", adapter_limits.max_texture_dimension_2d);
+
         let (device, queue) = match adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Zelland Renderer Device"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+                        .using_resolution(adapter_limits),
                     memory_hints: Default::default(),
                 },
                 None,
@@ -147,6 +151,7 @@ impl Renderer {
                 return;
             }
         };
+        info!("[ResizeDebug] device max_texture_dimension_2d: {}", device.limits().max_texture_dimension_2d);
 
         let mut font_system = FontSystem::new();
 
@@ -454,6 +459,7 @@ impl Renderer {
         let max_dim = self.device.limits().max_texture_dimension_2d;
         let width = width.min(max_dim).max(1);
         let height = height.min(max_dim).max(1);
+        info!("[ResizeDebug] resize: requested={}x{} max_dim={} clamped={}x{}", width, height, max_dim, width, height);
         if self.surface.is_none() {
             self.pending_size = Some((width, height));
             info!("resize {}x{} deferred (no surface yet)", width, height);
@@ -915,6 +921,13 @@ where
 {
     let mut lock = RENDERER.lock().unwrap_or_else(|e| e.into_inner());
     lock.as_mut().map(f)
+}
+
+/// Returns the current cell dimensions in physical pixels.
+/// Falls back to the compile-time constants if no renderer exists yet.
+pub fn get_cell_size() -> (f32, f32) {
+    with_renderer(|r| (r.cell_width, r.cell_height))
+        .unwrap_or((CELL_WIDTH, CELL_HEIGHT))
 }
 
 pub struct RawWindow {
