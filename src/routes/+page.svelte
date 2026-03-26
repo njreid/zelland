@@ -110,9 +110,12 @@
         (window as any).KeybarNative?.setVisible(visible);
     });
 
-    // Hide the native SurfaceView when not on the terminal pane so the WebView is readable.
+    // Hide the native SurfaceView when not on the terminal pane or no session is active.
+    // Without the session guard, the SurfaceView covers the entire WebView on startup
+    // (currentPaneIndex starts at 0) and intercepts all touches, making the welcome
+    // screen and sessions list completely inaccessible.
     $effect(() => {
-        (window as any).TerminalNative?.setVisible(currentPaneIndex === 0);
+        (window as any).TerminalNative?.setVisible(currentPaneIndex === 0 && !!appState.activeSessionId);
     });
 </script>
 

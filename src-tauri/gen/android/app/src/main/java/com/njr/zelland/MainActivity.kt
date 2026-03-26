@@ -63,7 +63,7 @@ class MainActivity : TauriActivity() {
 
         mDetector = GestureDetectorCompat(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                Log.d("MainActivity", "onSingleTapConfirmed: ${e.x}, ${e.y}")
+                Log.d("TouchDebug", "onSingleTapConfirmed: ${e.x}, ${e.y} → passTouchToRust(click)")
                 passTouchToRust("click", e.x, e.y)
                 // Focus the hidden native EditText so the system keyboard attaches to it.
                 val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
@@ -104,11 +104,14 @@ class MainActivity : TauriActivity() {
             ): Boolean {
                 // Multi-pointer check: distanceY is only sent to Rust as a scroll action
                 // if there are exactly 2 fingers on screen.
+                Log.d("TouchDebug", "onScroll: pointerCount=${e2.pointerCount} distanceX=$distanceX distanceY=$distanceY")
                 if (e2.pointerCount == 2) {
                     val action = if (distanceY > 0) "scroll_up" else "scroll_down"
+                    Log.d("TouchDebug", "onScroll → passTouchToRust($action, ${e2.x}, ${e2.y})")
                     passTouchToRust(action, e2.x, e2.y)
                     return true
                 }
+                Log.d("TouchDebug", "onScroll ignored (not 2 fingers)")
                 return false
             }
         })
@@ -172,14 +175,23 @@ class MainActivity : TauriActivity() {
         
         val container = FrameLayout(this)
         container.layoutParams = webView.layoutParams
-        
+
+        // Add the container to the parent BEFORE populating it, so the layout system
+        // resolves the container to its true screen dimensions. If we add the SurfaceView
+        // first, surfaceChanged fires with the WebView's pre-inset size (2048px) instead
+        // of the real height (~2349px), corrupting the initial wgpu surface configuration.
         parent.removeView(webView)
-        
+        parent.addView(container, index)
+
         surfaceView = SurfaceView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
+            // Start hidden — JS controls visibility via TerminalNative.setVisible().
+            // Without this the SurfaceView covers the entire WebView immediately on
+            // startup (before the Svelte $effect fires), blocking the welcome screen.
+            visibility = android.view.View.GONE
             // Lift the SurfaceView above the Window layer so it composites on top
             // of the WebView rather than relying on the punch-through mechanism,
             // which silently fails in hardware-accelerated Tauri view hierarchies.
@@ -188,6 +200,25 @@ class MainActivity : TauriActivity() {
                 mDetector.onTouchEvent(event)
                 true
             }
+            holder.addCallback(object : android.view.SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+                    Log.d("TouchDebug", "SurfaceHolder: surfaceCreated")
+                    webViewRef?.post {
+                        webViewRef?.evaluateJavascript(
+                            "window.dispatchEvent(new CustomEvent('surface-ready',{detail:{}}))", null
+                        )
+                    }
+                }
+                override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {}
+                override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+                    Log.d("TouchDebug", "SurfaceHolder: surfaceDestroyed")
+                    webViewRef?.post {
+                        webViewRef?.evaluateJavascript(
+                            "window.dispatchEvent(new CustomEvent('surface-unavailable',{detail:{}}))", null
+                        )
+                    }
+                }
+            })
         }
         
         val fillParams = FrameLayout.LayoutParams(
@@ -286,29 +317,29 @@ class MainActivity : TauriActivity() {
         }
         container.addView(hiddenEditText)
 
-        parent.addView(container, index)
-
         // Exclude the full SurfaceView from Android's system gesture navigation so that
         // left-swipe-from-right-edge is handled by our GestureDetector (opens sidebar)
         // rather than triggering the OS back gesture.
-        surfaceView?.viewTreeObserver?.addOnGlobalLayoutListener(
-            object : ViewTreeObserver.OnGlobalLayoutListener {
-                override fun onGlobalLayout() {
-                    val sv = surfaceView ?: return
-                    sv.viewTreeObserver?.removeOnGlobalLayoutListener(this)
-                    val w = sv.width; val h = sv.height
-                    if (w > 0 && h > 0) {
-                        ViewCompat.setSystemGestureExclusionRects(sv, listOf(Rect(0, 0, w, h)))
-                    }
-                }
-            })
+        // Keep this listener registered (no removeOnGlobalLayoutListener) so it also fires
+        // on subsequent layout changes — e.g. keyboard show/hide — to keep the renderer sized
+        // correctly. surfaceChanged reports a pre-inset size (2048px) on first fire, so we use
+        // onGlobalLayout (which fires after insets settle) as the authoritative resize source.
+        surfaceView?.viewTreeObserver?.addOnGlobalLayoutListener {
+            val sv = surfaceView ?: return@addOnGlobalLayoutListener
+            val w = sv.width; val h = sv.height
+            if (w > 0 && h > 0) {
+                ViewCompat.setSystemGestureExclusionRects(sv, listOf(Rect(0, 0, w, h)))
+                passResizeToRust(w, h)
+            }
+        }
 
         surfaceView?.holder?.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 passSurfaceToRust(holder.surface)
             }
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                passResizeToRust(width, height)
+                // No-op: sizing is driven by onGlobalLayout above, not surfaceChanged,
+                // because surfaceChanged fires with a stale pre-inset height on first call.
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 passSurfaceDestroyedToRust()
