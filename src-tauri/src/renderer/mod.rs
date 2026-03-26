@@ -755,9 +755,7 @@ impl Renderer {
                     (text.as_str(), attrs)
                 }),
                 glyphon::Attrs::new().family(glyphon::Family::Monospace),
-                // Basic shaping is sufficient for monospace terminal text and
-                // avoids the ligature/complex-script overhead of Advanced.
-                glyphon::Shaping::Basic,
+                glyphon::Shaping::Advanced,
             );
             text_buffer.shape_until_scroll(font_system, false);
         }
