@@ -69,6 +69,9 @@ pub struct Renderer {
 
     // Per-row damage cache: each row is a list of styled runs.
     row_cache: Vec<Vec<CellRun>>,
+    // Reusable buffer for span tuples passed to set_rich_text; avoids a
+    // Vec allocation + String clones on frames where text has changed.
+    span_buf: Vec<(String, Weight, Style, Color)>,
 
     // Current cell dimensions in physical pixels (updated via set_terminal_font_size).
     cell_width: f32,
@@ -225,6 +228,7 @@ impl Renderer {
             viewport,
             text_buffer,
             row_cache: Vec::new(),
+            span_buf: Vec::new(),
             cell_width: CELL_WIDTH,
             cell_height: CELL_HEIGHT,
             cursor_pipeline: None,
@@ -673,9 +677,7 @@ impl Renderer {
             .set_size(&mut self.font_system, Some(width), Some(height));
 
         let mut changed = false;
-        let mut rows_visited = 0u32;
         state.with_rows(|line_idx, is_dirty, cells| {
-            rows_visited += 1;
             if is_dirty || line_idx as usize >= self.row_cache.len() {
                 let runs = build_row_runs(cells);
 
@@ -691,7 +693,7 @@ impl Renderer {
         });
 
         // Shrink cache when the terminal gets smaller (prevents ghost rows).
-        let (num_cols, num_rows) = state.get_size();
+        let (_num_cols, num_rows) = state.get_size();
         if self.row_cache.len() > num_rows as usize {
             self.row_cache.truncate(num_rows as usize);
             changed = true;
@@ -706,68 +708,59 @@ impl Renderer {
             self.cell_height,
         ));
 
-        info!("draw_ghostty_state: dirty={} rows_visited={} changed={} cache_rows={} term_size={}x{} cursor=({},{})",
-            dirty, rows_visited, changed, self.row_cache.len(), num_cols, num_rows, cur_col, cur_row);
-
-        if !changed
-            && dirty
-                == crate::ghostty::GhosttyRenderStateDirty_GHOSTTY_RENDER_STATE_DIRTY_FALSE
-        {
+        // Nothing in the text buffer changed — skip the expensive text
+        // pipeline update entirely (set_rich_text + shape + prepare).
+        if !changed {
             return;
         }
 
         // Build (text, attrs) spans for set_rich_text, inserting newlines
         // between rows so glyphon lays each row on its own line.
-        let spans: Vec<(String, Weight, Style, Color)> = {
-            let row_count = self.row_cache.len();
-            let mut v = Vec::new();
-            for (row_idx, row) in self.row_cache.iter().enumerate() {
-                for run in row {
-                    let (r, g, b) = run.fg;
-                    v.push((
-                        run.text.clone(),
-                        if run.bold { Weight::BOLD } else { Weight::NORMAL },
-                        if run.italic { Style::Italic } else { Style::Normal },
-                        Color::rgb(r, g, b),
-                    ));
-                }
-                if row_idx + 1 < row_count {
-                    v.push((
-                        "\n".to_string(),
-                        Weight::NORMAL,
-                        Style::Normal,
-                        Color::rgb(255, 255, 255),
-                    ));
-                }
+        // Reuse the pre-allocated buffer to avoid a Vec alloc per frame.
+        self.span_buf.clear();
+        let row_count = self.row_cache.len();
+        for (row_idx, row) in self.row_cache.iter().enumerate() {
+            for run in row {
+                let (r, g, b) = run.fg;
+                self.span_buf.push((
+                    run.text.clone(),
+                    if run.bold { Weight::BOLD } else { Weight::NORMAL },
+                    if run.italic { Style::Italic } else { Style::Normal },
+                    Color::rgb(r, g, b),
+                ));
             }
-            v
-        };
-
-        // Log first non-empty run to diagnose invisible text (dark fg on dark bg).
-        let first_run = self.row_cache.iter().flat_map(|r| r.iter()).next();
-        if let Some(run) = first_run {
-            let sample: String = run.text.chars().take(20).collect();
-            info!("spans: total={} first_fg=({},{},{}) first_text={:?}",
-                spans.len(), run.fg.0, run.fg.1, run.fg.2, sample);
-        } else {
-            info!("spans: empty — nothing to render");
+            if row_idx + 1 < row_count {
+                self.span_buf.push((
+                    "\n".to_string(),
+                    Weight::NORMAL,
+                    Style::Normal,
+                    Color::rgb(255, 255, 255),
+                ));
+            }
         }
 
-        self.text_buffer.set_rich_text(
-            &mut self.font_system,
-            spans.iter().map(|(text, weight, style, color)| {
-                let mut attrs = glyphon::Attrs::new()
-                    .family(glyphon::Family::Monospace)
-                    .weight(*weight)
-                    .style(*style);
-                attrs.color_opt = Some(*color);
-                (text.as_str(), attrs)
-            }),
-            glyphon::Attrs::new().family(glyphon::Family::Monospace),
-            glyphon::Shaping::Advanced,
-        );
-        self.text_buffer
-            .shape_until_scroll(&mut self.font_system, false);
+        // Scope the split borrows so they're dropped before `prepare` needs
+        // an immutable reference to `self.text_buffer`.
+        {
+            let text_buffer = &mut self.text_buffer;
+            let font_system = &mut self.font_system;
+            text_buffer.set_rich_text(
+                font_system,
+                self.span_buf.iter().map(|(text, weight, style, color)| {
+                    let mut attrs = glyphon::Attrs::new()
+                        .family(glyphon::Family::Monospace)
+                        .weight(*weight)
+                        .style(*style);
+                    attrs.color_opt = Some(*color);
+                    (text.as_str(), attrs)
+                }),
+                glyphon::Attrs::new().family(glyphon::Family::Monospace),
+                // Basic shaping is sufficient for monospace terminal text and
+                // avoids the ligature/complex-script overhead of Advanced.
+                glyphon::Shaping::Basic,
+            );
+            text_buffer.shape_until_scroll(font_system, false);
+        }
 
         if let Err(e) = self.text_renderer.prepare(
             &self.device,
