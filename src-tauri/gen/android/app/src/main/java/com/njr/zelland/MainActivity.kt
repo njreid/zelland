@@ -122,6 +122,17 @@ class MainActivity : TauriActivity() {
         stopService(Intent(this, TerminalSessionService::class.java))
     }
 
+    // Activity-level touch log — fires for every touch regardless of which
+    // view handles it. Lets us confirm the app is receiving events at all
+    // without needing the SurfaceView to be visible.
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            val svVisible = surfaceView?.visibility == android.view.View.VISIBLE
+            Log.d("TouchDebug", "dispatchTouchEvent: DOWN x=${ev.x} y=${ev.y} svVisible=$svVisible")
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
     /**
      * Called when the app is already running and a notification action brings it to the
      * foreground. Reads the `navigate_session` extra and dispatches a JS CustomEvent so
@@ -155,8 +166,10 @@ class MainActivity : TauriActivity() {
         webView.addJavascriptInterface(object : Any() {
             @android.webkit.JavascriptInterface
             fun setVisible(visible: Boolean) {
+                Log.d("TouchDebug", "TerminalNative.setVisible($visible) called from JS, surfaceView=${surfaceView != null}")
                 runOnUiThread {
                     surfaceView?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.GONE
+                    Log.d("TouchDebug", "TerminalNative.setVisible($visible) applied, new visibility=${surfaceView?.visibility}")
                 }
             }
         }, "TerminalNative")
