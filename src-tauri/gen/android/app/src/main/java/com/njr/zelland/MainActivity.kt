@@ -106,7 +106,9 @@ class MainActivity : TauriActivity() {
                 // if there are exactly 2 fingers on screen.
                 Log.d("TouchDebug", "onScroll: pointerCount=${e2.pointerCount} distanceX=$distanceX distanceY=$distanceY")
                 if (e2.pointerCount == 2) {
-                    val action = if (distanceY > 0) "scroll_up" else "scroll_down"
+                    // distanceY is positive when the finger moves UP (i.e. content should
+                    // scroll down / terminal scrolls forward), so the natural mapping is inverted.
+                    val action = if (distanceY > 0) "scroll_down" else "scroll_up"
                     Log.d("TouchDebug", "onScroll → passTouchToRust($action, ${e2.x}, ${e2.y})")
                     passTouchToRust(action, e2.x, e2.y)
                     return true
