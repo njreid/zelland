@@ -63,7 +63,6 @@ class MainActivity : TauriActivity() {
 
         mDetector = GestureDetectorCompat(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                Log.e("TouchDebug", "onSingleTapConfirmed: ${e.x}, ${e.y} → passTouchToRust(click)")
                 passTouchToRust("click", e.x, e.y)
                 // Focus the hidden native EditText so the system keyboard attaches to it.
                 val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
@@ -75,7 +74,6 @@ class MainActivity : TauriActivity() {
             }
 
             override fun onLongPress(e: MotionEvent) {
-                Log.d("MainActivity", "onLongPress: ${e.x}, ${e.y}")
                 passTouchToRust("right_click", e.x, e.y)
             }
 
@@ -87,7 +85,6 @@ class MainActivity : TauriActivity() {
             ): Boolean {
                 // Left swipe (negative X velocity) → open sidebar
                 if (velocityX < -600f && Math.abs(velocityX) > Math.abs(velocityY) * 1.5f) {
-                    Log.d("MainActivity", "Left swipe → sidebar toggle")
                     webViewRef?.evaluateJavascript(
                         "window.dispatchEvent(new CustomEvent('kb-sidebar-toggle',{detail:{}}))", null
                     )
@@ -102,18 +99,12 @@ class MainActivity : TauriActivity() {
                 distanceX: Float,
                 distanceY: Float
             ): Boolean {
-                // Multi-pointer check: distanceY is only sent to Rust as a scroll action
-                // if there are exactly 2 fingers on screen.
-                Log.d("TouchDebug", "onScroll: pointerCount=${e2.pointerCount} distanceX=$distanceX distanceY=$distanceY")
+                // Two-finger scroll only: distanceY positive = finger moved up = scroll down.
                 if (e2.pointerCount == 2) {
-                    // distanceY is positive when the finger moves UP (i.e. content should
-                    // scroll down / terminal scrolls forward), so the natural mapping is inverted.
                     val action = if (distanceY > 0) "scroll_down" else "scroll_up"
-                    Log.d("TouchDebug", "onScroll → passTouchToRust($action, ${e2.x}, ${e2.y})")
                     passTouchToRust(action, e2.x, e2.y)
                     return true
                 }
-                Log.d("TouchDebug", "onScroll ignored (not 2 fingers)")
                 return false
             }
         })
@@ -122,18 +113,6 @@ class MainActivity : TauriActivity() {
     override fun onDestroy() {
         super.onDestroy()
         stopService(Intent(this, TerminalSessionService::class.java))
-    }
-
-    // Activity-level touch log — fires for every touch regardless of which
-    // view handles it. Lets us confirm the app is receiving events at all
-    // without needing the SurfaceView to be visible.
-    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
-            val svVisible = surfaceView?.visibility == android.view.View.VISIBLE
-            // Use Log.e (error level) so this is never stripped by R8 or filtered by device ROMs.
-            Log.e("TouchDebug", "dispatchTouchEvent: DOWN x=${ev.x} y=${ev.y} svVisible=$svVisible")
-        }
-        return super.dispatchTouchEvent(ev)
     }
 
     /**
@@ -169,10 +148,8 @@ class MainActivity : TauriActivity() {
         webView.addJavascriptInterface(object : Any() {
             @android.webkit.JavascriptInterface
             fun setVisible(visible: Boolean) {
-                Log.d("TouchDebug", "TerminalNative.setVisible($visible) called from JS, surfaceView=${surfaceView != null}")
                 runOnUiThread {
                     surfaceView?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.GONE
-                    Log.d("TouchDebug", "TerminalNative.setVisible($visible) applied, new visibility=${surfaceView?.visibility}")
                 }
             }
         }, "TerminalNative")
@@ -218,7 +195,7 @@ class MainActivity : TauriActivity() {
             }
             holder.addCallback(object : android.view.SurfaceHolder.Callback {
                 override fun surfaceCreated(holder: android.view.SurfaceHolder) {
-                    Log.d("TouchDebug", "SurfaceHolder: surfaceCreated")
+                    Log.d("MainActivity", "surfaceCreated")
                     webViewRef?.post {
                         webViewRef?.evaluateJavascript(
                             "window.dispatchEvent(new CustomEvent('surface-ready',{detail:{}}))", null
@@ -227,7 +204,7 @@ class MainActivity : TauriActivity() {
                 }
                 override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {}
                 override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
-                    Log.d("TouchDebug", "SurfaceHolder: surfaceDestroyed")
+                    Log.d("MainActivity", "surfaceDestroyed")
                     webViewRef?.post {
                         webViewRef?.evaluateJavascript(
                             "window.dispatchEvent(new CustomEvent('surface-unavailable',{detail:{}}))", null

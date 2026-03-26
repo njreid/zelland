@@ -130,7 +130,7 @@ impl Renderer {
         };
 
         let adapter_limits = adapter.limits();
-        info!("[ResizeDebug] adapter max_texture_dimension_2d: {}", adapter_limits.max_texture_dimension_2d);
+        info!("adapter max_texture_dimension_2d: {}", adapter_limits.max_texture_dimension_2d);
 
         let (device, queue) = match adapter
             .request_device(
@@ -151,7 +151,7 @@ impl Renderer {
                 return;
             }
         };
-        info!("[ResizeDebug] device max_texture_dimension_2d: {}", device.limits().max_texture_dimension_2d);
+        info!("device max_texture_dimension_2d: {}", device.limits().max_texture_dimension_2d);
 
         let mut font_system = FontSystem::new();
 
@@ -459,7 +459,7 @@ impl Renderer {
         let max_dim = self.device.limits().max_texture_dimension_2d;
         let width = width.min(max_dim).max(1);
         let height = height.min(max_dim).max(1);
-        info!("[ResizeDebug] resize: requested={}x{} max_dim={} clamped={}x{}", width, height, max_dim, width, height);
+        info!("resize: {}x{} (max_dim={})", width, height, max_dim);
         if self.surface.is_none() {
             self.pending_size = Some((width, height));
             info!("resize {}x{} deferred (no surface yet)", width, height);

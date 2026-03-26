@@ -108,15 +108,17 @@ pub extern "system" fn Java_com_njr_zelland_MainActivity_passTouchToRust(
     y: jni::sys::jfloat,
 ) {
     let action_str: String = env.get_string(&action).expect("Couldn't get java string").into();
-    
+
     if let Some(app) = crate::get_app_handle() {
         let ssh_manager = app.state::<crate::ssh::SshManager>();
         let ssh_manager_inner = ssh_manager.inner().clone();
-        
+
         crate::spawn_on_runtime(async move {
-            if let Err(e) = ssh_manager_inner.process_touch(action_str, x as f32, y as f32).await {
-                error!("Failed to process touch: {}", e);
+            if let Err(e) = ssh_manager_inner.process_touch(action_str.clone(), x as f32, y as f32).await {
+                log::error!("process_touch failed: {}", e);
             }
         });
+    } else {
+        log::warn!("passTouchToRust: no app handle yet, dropping touch event");
     }
 }

@@ -51,10 +51,8 @@ impl TerminalSession {
     pub fn process_mouse(&self, x: f32, y: f32, action: &str) -> Vec<Vec<u8>> {
         let mut sequences = Vec::new();
         let mouse_mode = self.get_mouse_mode();
-        log::info!("[TouchDebug] process_mouse: action={} x={} y={} mouse_mode={}", action, x, y, mouse_mode);
-
         if !mouse_mode {
-            log::warn!("[TouchDebug] process_mouse: mouse_mode=false — zellij has not yet sent \\x1b[?1000h, event dropped");
+            log::warn!("process_mouse: mouse_mode=false, event dropped (waiting for \\x1b[?1000h)");
             return sequences;
         }
 
@@ -108,8 +106,6 @@ impl TerminalSession {
             // matches what is actually rendered. The compile-time constants are
             // only a fallback for when no renderer exists yet.
             let (cell_w, cell_h) = crate::renderer::get_cell_size();
-            log::info!("[TouchDebug] encode_mouse_event: action={} x={} y={} cols={} rows={} cell={}x{}",
-                action, x_px, y_px, cols, rows, cell_w, cell_h);
             let size = GhosttyMouseEncoderSize {
                 size: std::mem::size_of::<GhosttyMouseEncoderSize>(),
                 screen_width: (cols as u32) * cell_w as u32,
@@ -171,13 +167,9 @@ impl TerminalSession {
         }
 
         if res == GhosttyResult_GHOSTTY_SUCCESS && out_len > 0 {
-            let seq = &buf[..out_len];
-            log::info!("[TouchDebug] encode_mouse_event: encoded {} bytes: {:?}",
-                out_len, String::from_utf8_lossy(seq));
-            Some(seq.to_vec())
+            Some(buf[..out_len].to_vec())
         } else {
-            log::warn!("[TouchDebug] encode_mouse_event: encoder returned nothing — res={} out_len={} action={}",
-                res, out_len, action);
+            log::warn!("encode_mouse_event: encoder returned nothing (res={} action={})", res, action);
             None
         }
     }
@@ -200,7 +192,6 @@ impl TerminalSession {
             // Only clear dirty flags after a frame was actually submitted.
             self.dirty = false;
             self.render_state.reset_dirty();
-            info!("render_native: frame drawn");
         } else {
             warn!("render_native: no renderer available (surface not yet ready)");
         }
