@@ -10,12 +10,29 @@
     let resizeObserver: ResizeObserver;
     let destroyed = false;
 
+    function onKbInput(e: Event) {
+        const seq: string = (e as CustomEvent).detail?.seq;
+        if (!seq) return;
+        const bytes = Array.from(new TextEncoder().encode(seq));
+        invoke('ssh_write', { tabId, data: bytes }).catch(() => {});
+    }
+
+    /** Cell dimensions derived from the font size setting and device DPR. */
+    function getCellDimensions() {
+        const dpr = window.devicePixelRatio || 1;
+        const cellH = appState.terminalFontSize * dpr;
+        const cellW = cellH * 0.45;
+        return { cellW, cellH, dpr };
+    }
+
     onMount(() => {
+        window.addEventListener('kb-input', onKbInput);
+
         function doFitAndResize() {
             if (terminalElement.clientWidth > 0 && terminalElement.clientHeight > 0) {
-                // Standardized grid dimensions matching Rust backend (CELL_WIDTH=24.0, CELL_HEIGHT=32.0)
-                const cols = Math.floor(terminalElement.clientWidth / 24.0);
-                const rows = Math.floor(terminalElement.clientHeight / 32.0);
+                const { cellW, cellH, dpr } = getCellDimensions();
+                const cols = Math.floor(terminalElement.clientWidth * dpr / cellW);
+                const rows = Math.floor(terminalElement.clientHeight * dpr / cellH);
                 if (cols > 0 && rows > 0) {
                     appState.resize(tabId, rows, cols);
                 }
@@ -31,6 +48,7 @@
         connectSsh();
 
         return () => {
+            window.removeEventListener('kb-input', onKbInput);
             if (resizeObserver) resizeObserver.disconnect();
             window.removeEventListener('resize', onWindowResize);
         };
@@ -68,13 +86,19 @@
         }
     }
 
-    // Reactive resize trigger
+    // Reactive resize/font-size trigger
     $effect(() => {
         if (appState.terminalResizeTrigger >= 0) {
             setTimeout(() => {
+                const { cellW, cellH, dpr } = getCellDimensions();
+                // Update Rust renderer font size first so cell layout matches.
+                invoke('set_terminal_font_size', {
+                    cssPx: appState.terminalFontSize,
+                    dpr
+                }).catch(() => {});
                 if (terminalElement.clientWidth > 0 && terminalElement.clientHeight > 0) {
-                    const cols = Math.floor(terminalElement.clientWidth / 24.0);
-                    const rows = Math.floor(terminalElement.clientHeight / 32.0);
+                    const cols = Math.floor(terminalElement.clientWidth * dpr / cellW);
+                    const rows = Math.floor(terminalElement.clientHeight * dpr / cellH);
                     if (cols > 0 && rows > 0) {
                         appState.resize(tabId, rows, cols);
                     }

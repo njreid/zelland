@@ -142,9 +142,9 @@
     }
 
     .topbar-btn {
-        background-color: #2a2b3d;
-        border-color: #4a4b5d;
-        color: #c0caf5;
+        background-color: var(--bg-tab);
+        border-color: var(--border-tab);
+        color: var(--fg-tab);
         height: 2.2rem;
         display: flex;
         align-items: center;
@@ -170,7 +170,7 @@
     }
 
     .close-btn:hover {
-        color: var(--error) !important;
+        color: var(--error);
     }
 
     .tab-group {

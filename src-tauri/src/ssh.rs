@@ -18,13 +18,6 @@ use crate::terminal::TerminalSession;
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum SshChannelMsg {
-    /// Full viewport rendered by Rust as ANSI escape sequences.
-    Viewport { 
-        #[serde(with = "serde_bytes")]
-        data: Vec<u8>, 
-        at_bottom: bool,
-        mouse_mode: bool,
-    },
     /// SSH session has ended (clean exit or connection drop).
     Closed,
 }
@@ -35,9 +28,17 @@ async fn open_session(
     key_manager: Arc<dyn KeyManager>,
 ) -> Result<client::Handle<Client>, String> {
     let addr = format!("{}:{}", config.host, config.port);
-    let mut session = client::connect(Arc::new(client::Config::default()), addr, Client {})
-        .await
-        .map_err(|e| format!("Connection failed: {}", e))?;
+    let mut session = client::connect(
+        Arc::new(client::Config {
+            keepalive_interval: Some(std::time::Duration::from_secs(30)),
+            keepalive_max: 3,
+            ..Default::default()
+        }),
+        addr,
+        Client {},
+    )
+    .await
+    .map_err(|e| format!("Connection failed: {}", e))?;
     match authenticate(&mut session, config, key_manager).await? {
         AuthResult::Success => Ok(session),
         _ => Err("Authentication failed".to_string()),
@@ -67,7 +68,7 @@ pub struct SshConfig {
 pub enum SessionMsg {
     Data(Vec<u8>),
     Resize { rows: u32, cols: u32 },
-    Mouse { x: f32, y: f32, action: String },
+    ProcessMouse { x: f32, y: f32, action: String },
 }
 
 pub struct Client {}
@@ -129,6 +130,7 @@ async fn authenticate(
     }
 }
 
+#[derive(Clone)]
 pub struct SshManager {
     // Stores the write handle for each active session
     pub active_sessions: Arc<Mutex<HashMap<String, mpsc::Sender<SessionMsg>>>>,
@@ -222,7 +224,9 @@ impl SshManager {
             info!("SSH session loop started for tab {}", tab_id_spawn);
 
             let mut ts = TerminalSession::new(cols, rows);
-            
+            let mut bytes_received: u64 = 0;
+            info!("SSH session loop ready for tab {}", tab_id_spawn);
+
             // Optimized flush interval (60 FPS)
             let mut flush_interval = tokio::time::interval(std::time::Duration::from_millis(16));
             flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -243,10 +247,12 @@ impl SshManager {
                                 }
                                 ts.resize(cols as u16, rows as u16);
                             }
-                            Some(SessionMsg::Mouse { x, y, action }) => {
-                                if let Some(encoded) = ts.encode_mouse_event(x, y, &action) {
-                                    if let Err(e) = channel.data(&encoded[..]).await {
-                                        error!("Failed to write mouse data to SSH channel for tab {}: {}", tab_id_spawn, e);
+                            Some(SessionMsg::ProcessMouse { x, y, action }) => {
+                                let sequences = ts.process_mouse(x, y, &action);
+                                for seq in sequences {
+                                    if let Err(e) = channel.data(&seq[..]).await {
+                                        error!("Failed to write mouse process data to SSH channel for tab {}: {}", tab_id_spawn, e);
+                                        break;
                                     }
                                 }
                             }
@@ -256,6 +262,10 @@ impl SshManager {
                     msg = channel.wait() => {
                         match msg {
                             Some(russh::ChannelMsg::Data { ref data }) => {
+                                bytes_received += data.len() as u64;
+                                if bytes_received <= 256 || bytes_received % 4096 == 0 {
+                                    info!("SSH data for tab {}: {} bytes total", tab_id_spawn, bytes_received);
+                                }
                                 ts.process_bytes(data);
                             }
                             Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
@@ -272,18 +282,9 @@ impl SshManager {
                     }
                     _ = flush_interval.tick() => {
                         if ts.is_dirty() {
-                            // Phase 3: Trigger native wgpu rendering
-                            ts.render_native();
-
-                            // Strategy 1: Send only the visible viewport rendered by Rust.
-                            // This eliminates double-parsing (Rust and JS both parsing ANSI).
-                            let mouse_mode = ts.get_mouse_mode();
-                            let viewport = ts.render_viewport();
-                            let _ = output.send(SshChannelMsg::Viewport { 
-                                data: viewport.to_vec(), 
-                                at_bottom: true,
-                                mouse_mode,
-                            });
+                            if let Err(e) = ts.render_native() {
+                                error!("render_native failed for tab {}: {}", tab_id_spawn, e);
+                            }
                         }
                     }
                 }
@@ -327,7 +328,7 @@ impl SshManager {
     }
 
     pub async fn scroll(&self, _tab_id: String, _delta: i32) -> Result<(), String> {
-        // Scrollback handled by Zellij only.
+        // Zero-scrollback design: no local buffer to scroll.
         Ok(())
     }
 
@@ -342,7 +343,7 @@ impl SshManager {
             let focused = self.focused_session.lock().await;
             focused.clone().ok_or("No focused session")?
         };
-        self.send_to_session(&tab_id, SessionMsg::Mouse { x, y, action }).await
+        self.send_to_session(&tab_id, SessionMsg::ProcessMouse { x, y, action }).await
     }
 }
 
@@ -364,17 +365,9 @@ mod tests {
     }
 
     #[test]
-    fn test_ssh_channel_msg_serialization() {
-        let msg = SshChannelMsg::Viewport { 
-            data: vec![1, 2, 3], 
-            at_bottom: true,
-            mouse_mode: false,
-        };
+    fn test_ssh_channel_msg_closed_serialization() {
+        let msg = SshChannelMsg::Closed;
         let json = serde_json::to_string(&msg).unwrap();
-        // With tag="type" and content="data", it should be {"type":"Viewport","data":{"data":[1,2,3],"at_bottom":true,"mouse_mode":false}}
-        assert!(json.contains("\"type\":\"Viewport\""));
-        assert!(json.contains("\"data\":[1,2,3]"));
-        assert!(json.contains("\"at_bottom\":true"));
-        assert!(json.contains("\"mouse_mode\":false"));
+        assert!(json.contains("\"type\":\"Closed\""));
     }
 }

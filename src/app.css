@@ -50,11 +50,29 @@
   --error: #f7768e;
   --success: #9ece6a;
   
+  /* Modifier key colours (also used for session status indicators) */
+  --mod-ctrl: #7aa2f7;
+  --mod-alt:  #e0af68;
+  --mod-meta: #9ece6a;
+
+  /* Tab / keyboard button sub-theme */
+  --bg-tab:     #2a2b3d;
+  --border-tab: #4a4b5d;
+  --fg-tab:     #c0caf5;
+
+  /* Accent tints */
+  --accent-a08: rgba(122, 162, 247, 0.08);
+  --accent-a04: rgba(122, 162, 247, 0.04);
+
   /* Component Specific */
   --sidebar-width: 250px;
   --ann-sidebar-width: 280px;
   --topbar-height: 3.5rem;
   --keyboard-height: auto;
+}
+
+html, body {
+  background-color: transparent !important;
 }
 
 body {
@@ -98,6 +116,10 @@ main.container-fluid {
   align-items: center;
   gap: 0.5rem;
 }
+
+.flex-row.between { justify-content: space-between; }
+.gap-1  { gap: 0.25rem; }
+.mb-2   { margin-bottom: 0.5rem; }
 
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);

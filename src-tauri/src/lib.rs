@@ -7,23 +7,37 @@ pub mod intent;
 pub mod keybar;
 pub mod network;
 pub mod keystore;
+#[cfg(target_os = "android")]
+pub mod android_notif;
 
 use tauri::{State, AppHandle, Manager};
 use tauri::ipc::Channel;
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
+use log::info;
 
 static APP_HANDLE: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None));
-
 pub fn get_app_handle() -> Option<AppHandle> {
     APP_HANDLE.lock().unwrap().clone()
+}
+
+/// Spawn a future on Tauri's async runtime. Safe to call from JNI/UI threads
+/// that have no Tokio runtime context of their own.
+pub fn spawn_on_runtime<F>(future: F) -> tauri::async_runtime::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tauri::async_runtime::spawn(future)
 }
 #[cfg(target_os = "linux")]
 use webkit2gtk::{SettingsExt, WebInspectorExt, WebViewExt};
 
 use crate::ssh::{SshConfig, SshManager, SshChannelMsg};
 use crate::daemon::DaemonManager;
-use crate::keystore::{KeyManager, StandardKeyManager};
+use crate::keystore::KeyManager;
+#[cfg(not(target_os = "android"))]
+use crate::keystore::StandardKeyManager;
 use std::sync::Arc;
 
 pub struct ManagedKeyManager(pub Arc<dyn KeyManager>);
@@ -38,7 +52,14 @@ async fn ssh_connect(
     cols: u16,
     channel: Channel<SshChannelMsg>,
 ) -> Result<(), String> {
-    ssh_state.connect(tab_id, config, rows, cols, channel, key_state.0.clone()).await
+    info!("ssh_connect called: tab={} host={}:{} user={} auth={:?} rows={} cols={}",
+        tab_id, config.host, config.port, config.username, config.auth_method, rows, cols);
+    let result = ssh_state.connect(tab_id.clone(), config, rows, cols, channel, key_state.0.clone()).await;
+    match &result {
+        Ok(_)    => info!("ssh_connect success: tab={}", tab_id),
+        Err(e)   => info!("ssh_connect FAILED: tab={} err={}", tab_id, e),
+    }
+    result
 }
 
 #[tauri::command]
@@ -94,6 +115,19 @@ async fn run_remote_command(
     command: String,
 ) -> Result<String, String> {
     ssh_state.run_command(config, command, key_state.0.clone()).await
+}
+
+#[tauri::command]
+async fn show_agent_notification(title: String, body: String, session_name: String) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    crate::android_notif::show(&title, &body, &session_name);
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_terminal_font_size(css_px: f32, dpr: f32) -> Result<(), String> {
+    crate::renderer::update_font_size_global(css_px, dpr);
+    Ok(())
 }
 
 #[tauri::command]
@@ -210,7 +244,9 @@ pub fn run() {
             list_ssh_keys,
             delete_ssh_key,
             close_window,
-            biometric_result
+            biometric_result,
+            set_terminal_font_size,
+            show_agent_notification
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

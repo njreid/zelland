@@ -209,7 +209,7 @@ impl GhosttyRenderStateWrapper {
     /// Iterator over rows and cells for rendering.
     pub fn with_rows<F>(&mut self, mut f: F)
     where
-        F: FnMut(u16, &GhosttyRenderStateRowCells),
+        F: FnMut(u16, bool, &GhosttyRenderStateRowCells),
     {
         unsafe {
             ghostty_render_state_get(
@@ -226,7 +226,24 @@ impl GhosttyRenderStateWrapper {
                     &mut self.row_cells as *mut _ as *mut c_void,
                 );
 
-                f(row_idx, &self.row_cells);
+                let mut dirty: bool = false;
+                ghostty_render_state_row_get(
+                    self.row_iter,
+                    GhosttyRenderStateRowData_GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY,
+                    &mut dirty as *mut _ as *mut std::ffi::c_void,
+                );
+
+                f(row_idx, dirty, &self.row_cells);
+
+                if dirty {
+                    let reset: bool = false;
+                    ghostty_render_state_row_set(
+                        self.row_iter,
+                        GhosttyRenderStateRowOption_GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY,
+                        &reset as *const _ as *const std::ffi::c_void,
+                    );
+                }
+
                 row_idx += 1;
             }
         }

@@ -15,6 +15,7 @@
     let sidebarOpen = $state(false);
     let isLinux = $state(false);
     let ribbonContainer: HTMLDivElement;
+    let currentPaneIndex = $state(0);
 
     onMount(async () => {
         await appState.fetchAllProjects();
@@ -22,12 +23,6 @@
         isLinux = osPlatform === 'linux';
 
         if (!isLinux) {
-            window.addEventListener('kb-input', (e) => {
-                const { seq } = (e as CustomEvent<{ seq: string }>).detail;
-                handleKbInput(seq, appState.activeSessionId, (id, bytes) => {
-                    appState.writeInput(id, bytes);
-                });
-            });
             window.addEventListener('kb-sidebar-toggle', () => {
                 toggleSidebar();
             });
@@ -38,6 +33,18 @@
                 }
             });
         }
+
+        // Track visible pane index so keybar visibility stays in sync.
+        ribbonContainer?.addEventListener('scroll', () => {
+            const idx = Math.round(ribbonContainer.scrollLeft / (ribbonContainer.clientWidth || 1));
+            currentPaneIndex = idx;
+        });
+
+        // Called by MainActivity.onNewIntent when a notification action is tapped.
+        (window as any).__navigateToSession = (sessionName: string) => {
+            appState.navigateToSession(sessionName, 0);
+            sidebarOpen = false;
+        };
     });
 
     function toggleSidebar() {
@@ -95,6 +102,17 @@
             sidebarOpen = false;
             scrollToPane(0);
         }
+    });
+
+    // Show keybar only when a session is active, terminal pane is visible, and sidebar is closed.
+    $effect(() => {
+        const visible = !!appState.activeSessionId && currentPaneIndex === 0 && !sidebarOpen;
+        (window as any).KeybarNative?.setVisible(visible);
+    });
+
+    // Hide the native SurfaceView when not on the terminal pane so the WebView is readable.
+    $effect(() => {
+        (window as any).TerminalNative?.setVisible(currentPaneIndex === 0);
     });
 </script>
 

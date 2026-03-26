@@ -75,7 +75,10 @@ impl DaemonManager {
                                 Some(Payload::Notification(notif)) => {
                                     info!("Received notification: {} (source={})", notif.title, notif.source);
 
-                                    // OS notification
+                                    // OS notification — on Android the JS side calls
+                                    // show_agent_notification (rich, with action button) when
+                                    // the app is backgrounded, so we skip the basic one there.
+                                    #[cfg(not(target_os = "android"))]
                                     let _ = app_handle.notification()
                                         .builder()
                                         .title(&notif.title)

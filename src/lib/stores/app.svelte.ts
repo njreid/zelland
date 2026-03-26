@@ -562,6 +562,15 @@ function createAppState() {
         listen<AgentNotification>("agent-notification", ({ payload }) => {
             lastAgentNotification = payload;
             log(`Agent notification: ${payload.title}`);
+            // When the app is backgrounded, request a rich Android notification with a
+            // "Switch to <session>" action button.
+            if (document.hidden && payload.session_name) {
+                invoke('show_agent_notification', {
+                    title: payload.title,
+                    body: payload.question || payload.body,
+                    sessionName: payload.session_name,
+                }).catch(() => {});
+            }
         });
 
         listen<any>("navigate-to-session", (event) => {

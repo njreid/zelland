@@ -211,13 +211,13 @@
     }
 
     .ann-card.active {
-        background: rgba(122, 162, 247, 0.08);
+        background: var(--accent-a08);
         border-left: 2px solid var(--accent);
     }
 
     .ann-form-container {
         border-bottom: 1px solid var(--pico-border-color);
-        background: rgba(122, 162, 247, 0.04);
+        background: var(--accent-a04);
         position: relative;
     }
 

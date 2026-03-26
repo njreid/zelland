@@ -9169,6 +9169,7 @@ dependencies = [
  "jni",
  "log",
  "ndk",
+ "ndk-context",
  "ndk-sys 0.6.0+11769913",
  "once_cell",
  "openssl",

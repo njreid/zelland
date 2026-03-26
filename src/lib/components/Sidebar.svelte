@@ -207,7 +207,7 @@
                 </div>
 
                 <div class="ssh-keys-section settings-item">
-                    <div class="flex-row justify-between mb-2">
+                    <div class="flex-row between mb-2">
                         <small>SSH IDENTITIES</small>
                         <button class="outline contrast icon-only-tiny" onclick={() => { showKeyForm = !showKeyForm; }} title="Generate New Key">
                             <Plus size={14} />
@@ -216,9 +216,9 @@
 
                     {#if showKeyForm}
                         <form class="key-gen-form" onsubmit={(e) => { e.preventDefault(); if (newKeyLabel.trim()) { appState.generateSshKey(newKeyLabel.trim()); newKeyLabel = ''; showKeyForm = false; } }}>
-                            <div class="flex-row gap-1">
-                                <input type="text" placeholder="Key label" bind:value={newKeyLabel} aria-label="Key Label" required style="margin-bottom: 0; font-size: 0.8rem; padding: 0.3rem;" />
-                                <button type="submit" style="margin-bottom: 0; padding: 0.3rem 0.5rem; font-size: 0.8rem; white-space: nowrap;">
+                            <div class="flex-row">
+                                <input type="text" placeholder="Key label" bind:value={newKeyLabel} aria-label="Key Label" required />
+                                <button type="submit">
                                     <Key size={12} />
                                 </button>
                             </div>
@@ -231,9 +231,9 @@
                         <ul class="list-none p-0">
                             {#each appState.sshKeys as key}
                                 <li class="key-item mb-2">
-                                    <div class="flex-row justify-between">
+                                    <div class="flex-row between">
                                         <span class="text-sm"><Key size={10} /> {key.label}</span>
-                                        <div class="flex-row gap-1">
+                                        <div class="flex-row">
                                             <button class="secondary icon-only-tiny" onclick={() => { navigator.clipboard.writeText('ssh-ed25519 ' + key.public_key); }} title="Copy Public Key">
                                                 <Copy size={10} />
                                             </button>
@@ -242,7 +242,7 @@
                                             </button>
                                         </div>
                                     </div>
-                                    <div class="text-xs secondary truncate" style="max-width: 180px;">ssh-ed25519 {key.public_key}</div>
+                                    <div class="key-public-preview">ssh-ed25519 {key.public_key}</div>
                                 </li>
                             {/each}
                         </ul>
@@ -321,7 +321,7 @@
         </ul>
 
         <!-- Hosts Section -->
-        <small class="mt-4 block">HOSTS</small>
+        <small>HOSTS</small>
         <ul class="list-none">
             {#each appState.hosts as host}
                 <li>
@@ -335,7 +335,7 @@
                                 {/if}
                                 <span class={!host.reachable ? 'text-error' : ''}>{host.label}</span>
                             </div>
-                            <div class="flex-row gap-1">
+                            <div class="flex-row">
                                 <button type="button" onclick={(e) => { e.stopPropagation(); appState.fetchProjectsForHost(host.id); }} class="secondary icon-only-tiny">
                                     <Server size={12} />
                                 </button>
@@ -359,28 +359,24 @@
         </ul>
     </div>
 
-    <!-- Bottom Settings Button -->
+    <!-- Footer: icon-only buttons in a single row -->
     <div class="sidebar-footer">
-        {#if appState.activeSessionId}
-            <button class="outline restart-btn" onclick={() => appState.restartActiveSession()}>
-                <RotateCcw size={14} />
-                <span>Restart Terminal</span>
+        <div class="footer-row">
+            {#if appState.activeSessionId}
+                <button class="outline icon-btn" title="Restart Terminal" onclick={() => appState.restartActiveSession()}>
+                    <RotateCcw size={16} />
+                </button>
+            {/if}
+            <button class="outline contrast icon-btn" title="Add Host" onclick={() => { showAddHost = !showAddHost; showAddSession = false; showSettings = false; }}>
+                <Server size={16} />
             </button>
-        {/if}
-        <div class="sidebar-actions grid">
-            <button class="outline contrast action-btn" onclick={() => { showAddHost = !showAddHost; showAddSession = false; showSettings = false; }}>
-                <Server size={14} />
-                <span>Host</span>
+            <button class="outline contrast icon-btn" title="Add Session" onclick={() => { showAddSession = !showAddSession; showAddHost = false; showSettings = false; }}>
+                <Terminal size={16} />
             </button>
-            <button class="outline contrast action-btn" onclick={() => { showAddSession = !showAddSession; showAddHost = false; showSettings = false; }}>
-                <Terminal size={14} />
-                <span>Session</span>
+            <button class="outline contrast icon-btn" title="Settings" onclick={() => { showSettings = !showSettings; showAddHost = false; showAddSession = false; }}>
+                <Settings size={16} />
             </button>
         </div>
-        <button class="outline contrast settings-trigger" onclick={() => { showSettings = !showSettings; showAddHost = false; showAddSession = false; }}>
-            <Settings size={16} />
-            <span>Settings</span>
-        </button>
     </div>
 </aside>
 
@@ -398,51 +394,30 @@
         z-index: 50;
         padding: 0;
         box-shadow: 4px 0 10px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
     }
 
     .sidebar-footer {
-        padding: 0.75rem 1rem;
-        border-top: 1px solid var(--pico-border-color);
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .sidebar-actions {
-        margin-bottom: 0;
-    }
-
-    .restart-btn {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem;
-        padding: 0.4rem 0.75rem;
-        font-size: 0.85rem;
-        margin-bottom: 0;
-        border-width: 1px;
-        color: var(--pico-primary);
-        border-color: var(--pico-primary);
-    }
-    .restart-btn:hover {
-        background: color-mix(in srgb, var(--pico-primary) 12%, transparent);
-    }
-
-    .action-btn, .settings-trigger {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
         padding: 0.5rem 0.75rem;
-        font-size: 0.85rem;
-        margin-bottom: 0;
-        border-width: 1px;
+        border-top: 1px solid var(--pico-border-color);
+        flex-shrink: 0;
     }
 
-    .action-btn {
+    .footer-row {
+        display: flex;
+        gap: 0.3rem;
+        align-items: center;
+    }
+
+    .icon-btn {
+        display: flex;
+        align-items: center;
         justify-content: center;
         padding: 0.4rem;
+        margin: 0;
+        flex: 1;
+        min-width: 0;
+        border-width: 1px;
     }
 
 
@@ -530,24 +505,25 @@
     .tree-container {
         flex: 1;
         overflow-y: auto;
-        padding: 1rem;
+        min-height: 0;
+        padding: 0.4rem 0.6rem;
     }
 
     .tree-container ul {
         padding-left: 0;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.15rem;
     }
-    
+
     .tree-container li {
         list-style: none;
-        margin-bottom: 0.25rem;
+        margin-bottom: 0;
     }
 
     .host-summary {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 0.25rem;
+        padding: 0.1rem 0.15rem;
         font-size: 0.85rem;
         list-style: none;
         cursor: pointer;
@@ -555,13 +531,13 @@
 
     .session-row-container {
         display: flex;
-        gap: 0.25rem;
+        gap: 0.15rem;
         align-items: stretch;
     }
 
     .delete-btn {
         width: auto;
-        padding: 0 0.5rem;
+        padding: 0 0.4rem;
         border-color: transparent;
         color: var(--pico-muted-color);
     }
@@ -583,7 +559,7 @@
     .session-btn {
         width: 100%;
         text-align: left;
-        padding: 0.4rem;
+        padding: 0.2rem 0.4rem;
         font-size: 0.85rem;
         border-width: 1px;
     }
@@ -591,12 +567,12 @@
     .project-btn {
         background: none;
         border: none;
-        padding: 0.2rem 0.4rem;
+        padding: 0.02rem 0.06rem;
         font-size: 0.85rem;
         cursor: pointer;
         display: flex;
         align-items: center;
-        gap: 0.3rem;
+        gap: 0.25rem;
         color: var(--pico-color);
         width: 100%;
         text-align: left;
@@ -611,6 +587,29 @@
         font-weight: bold;
         color: var(--pico-muted-color);
         letter-spacing: 0.05em;
+        display: block;
+        margin-bottom: 0.1rem;
+    }
+
+    .key-gen-form input {
+        margin-bottom: 0;
+        font-size: 0.8rem;
+        padding: 0.3rem;
+    }
+    .key-gen-form button {
+        margin-bottom: 0;
+        padding: 0.3rem 0.5rem;
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+
+    .key-public-preview {
+        font-size: 0.7rem;
+        color: var(--fg-dim);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 180px;
     }
 
     .text-error { color: var(--error); }

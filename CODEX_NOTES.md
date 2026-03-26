@@ -1,40 +1,34 @@
 # WGPU + Ghostty implementation critique
 
-Overall, the migration is partway there, but the repo does not yet match the plan's "COMPLETED" claim.
+The current codebase is much closer to the migration plan than the plan document implies, but it still falls short of the plan's "COMPLETED" status in a few important ways.
 
-## What lines up with the plan
+## What is genuinely in place
 
-- `TerminalSession` is backed by Ghostty now, with `max_scrollback: 0` set in `src-tauri/src/ghostty.rs:20`.
-- A native renderer exists and `glyphon`/`wgpu` are wired in at `src-tauri/src/renderer.rs:20`.
-- The terminal web component no longer renders ANSI into the DOM in `src/lib/components/Terminal.svelte:52`.
+- The terminal backend is now Ghostty-based, with zero local scrollback configured in `src-tauri/src/ghostty.rs:20`.
+- Native rendering is real: `wgpu` + `glyphon` are wired up in `src-tauri/src/renderer/mod.rs:28` and `Terminal.svelte` no longer paints ANSI into the DOM at `src/lib/components/Terminal.svelte:51`.
+- The old viewport channel is mostly gone. `SshChannelMsg` only emits `Closed` now in `src-tauri/src/ssh.rs:20`, so the Phase 1 bridge has largely been removed.
+- Android JNI entry points for surface attach/destroy/resize/touch exist in `src-tauri/src/renderer/android.rs:18`.
 
-## Gaps vs the plan
+## Main implementation gaps
 
-- The plan claims row-level damage tracking is implemented, but `Renderer::draw_ghostty_state` still rebuilds the entire text buffer on any dirty frame and even calls this out in a comment at `src-tauri/src/renderer.rs:233`.
-- The native path still pays for the old hybrid path: `ssh.rs` calls both `render_native()` and `render_viewport()` on every flush, then sends a viewport payload that `Terminal.svelte` ignores. See `src-tauri/src/ssh.rs:273` and `src/lib/components/Terminal.svelte:54`.
-- `xterm` dependencies were not actually removed from the app package. They are still present in `package.json:24`.
-- The Android implementation described in the plan is hard to verify from the repo because there is no checked-in `MainActivity.kt` or Android Kotlin source here.
-- Surface sizing is still placeholder-based. `passSurfaceToRust` forces `1080x2400` and renders a debug string instead of using real surface dimensions/lifecycle events at `src-tauri/src/renderer.rs:351`.
-- Touch-to-mouse translation is still based on duplicated fixed cell sizes (`24x32`) in both Rust and Svelte, not measured renderer metrics. See `src-tauri/src/terminal.rs:47`, `src-tauri/src/renderer.rs:17`, and `src/lib/components/Terminal.svelte:16`.
-- The current desktop test path is broken: `go-task test` fails on Linux because `ndk-sys` is unconditional in `src-tauri/Cargo.toml:61` and `renderer.rs` is not Android-gated.
+- The biggest correctness bug is in `src-tauri/src/terminal.rs:127`: `render_native()` clears `self.dirty` before updating/rendering, and it also resets Ghostty's dirty flag even when no renderer exists. If the first flush happens before the Android surface is ready, the frame is dropped and nothing forces a redraw later.
+- Damage tracking is only partial. `src-tauri/src/renderer/mod.rs:381` caches rows, but any changed row still causes the renderer to rebuild one large rich-text buffer and re-run shaping for the entire viewport. That is row diffing, not end-to-end row-level rendering.
+- Styling support is incomplete. `build_row_runs()` in `src-tauri/src/renderer/mod.rs:494` preserves fg/bold/italic, but background colors, underline, cursor treatment, and selection/inversion rendering are still missing. `render()` also clears to hard-coded magenta at `src-tauri/src/renderer/mod.rs:253`, which makes the native path look like a debug surface rather than a terminal.
+- Layout math is still hard-coded in multiple places. `CELL_WIDTH`/`CELL_HEIGHT` live in `src-tauri/src/renderer/mod.rs:15`, while `Terminal.svelte` independently divides by `24` and `32` at `src/lib/components/Terminal.svelte:17` and `src/lib/components/Terminal.svelte:76`. Mouse encoding uses the same assumptions in `src-tauri/src/terminal.rs:58`, so renderer metrics, resize math, and hit testing can drift.
+- SSH PTY resize still throws away pixel dimensions. `channel.window_change(cols, rows, 0, 0)` in `src-tauri/src/ssh.rs:245` means the remote side never receives real pixel sizing even though Ghostty locally tracks pixel dimensions.
+- The renderer architecture is still single-surface and global. `static RENDERER: Lazy<Mutex<Option<Renderer>>>` in `src-tauri/src/renderer/mod.rs:52` makes multiple independent terminal surfaces difficult and couples every session to one process-wide lock.
+- The Android side is not fully reviewable from the repo. The Rust JNI hooks refer to `MainActivity`, but there is no checked-in `MainActivity.kt` under `src-tauri/gen/android/...`, so the plan's Android lifecycle claims cannot be verified end-to-end from source.
 
-## Refactoring I would recommend
+## Refactoring notes
 
-- Split `src-tauri/src/renderer.rs` into a platform-neutral terminal rendering facade and an Android-only JNI/surface backend behind `#[cfg(target_os = "android")]`. This should also move `ndk`/`ndk-sys` into Android-only dependencies.
-- Make the rendering mode explicit: either remove the old ANSI viewport path entirely, or keep it as a deliberate fallback feature flag. Right now the code does both and gets the cost of both.
-- Turn damage tracking into a real row cache. Keep per-row text/style buffers and only rebuild dirty rows instead of recreating one big `String` every frame.
-- Replace duplicated `24x32` constants with one source of truth negotiated from the renderer/font metrics, then feed those values to resize and mouse-hit testing.
-- Move the debug-first surface bootstrap (`Hello from Zelland...`, hardcoded size) out of production code and hook into real surface create/change/destroy events.
-- Remove stale migration leftovers in docs and package metadata (`PLAN.md`, `TESTING.md`, `AGENTS.md`, `package.json`) so the repo reflects the current architecture.
+- Make frame invalidation reliable first: only clear `TerminalSession.dirty` and Ghostty dirty flags after a frame is successfully prepared for an attached renderer.
+- Split `src-tauri/src/renderer/mod.rs` into a terminal rendering core and an Android surface/JNI adapter. Keep the global singleton out of the rendering core so sessions own explicit renderer handles.
+- Replace the shared `24x32` guess with measured font metrics from the renderer and flow those values into Svelte resize, Ghostty resize, and mouse-event encoding.
+- Upgrade damage handling from cached rows to cached prepared text segments, or separate row buffers, so unchanged rows do not trigger full viewport shaping.
+- Finish the visual model: add bg colors, underline, reverse-video, cursor rendering, and remove the hard-coded magenta clear path.
+- Move Android-specific lifecycle verification into checked-in Kotlin sources or document exactly where that code lives if it is generated elsewhere.
 
-## Additional testing I would add
+## Testing and validation
 
-- A host-side `cargo check`/`cargo test` job for Linux so Android-only rendering code cannot break the normal dev/test workflow again.
-- Unit tests around `encode_mouse_event` for press/release/right-click and coordinate mapping edge cases in `src-tauri/src/terminal.rs:47`.
-- A render-state test that proves only changed rows are prepared after incremental terminal updates; that is the main missing promise from the plan.
-- An integration test for resize/surface changes covering orientation changes and surface recreation on Android.
-- A regression test for terminal input on the post-xterm UI path, since `Terminal.svelte` no longer owns keyboard input directly.
-
-## Validation note
-
-- I ran `go-task test`; Vitest passed, but the Rust side failed to compile on Linux because `ndk-sys` only supports Android. That failure blocks confidence in the current "completed" status.
+- `go-task test` passes on the current tree: 28 Vitest tests, 29 `src-tauri` tests, 63 daemon tests, and 10 `src-voice` Rust tests all passed.
+- The existing tests are still light on the new renderer path. The next useful additions are a dropped-surface redraw regression, a resize/orientation lifecycle test, and a renderer test that proves unchanged rows do not get fully rebuilt.

@@ -69,6 +69,22 @@ fn build_libghostty() {
 
     if target.contains("android") {
         println!("cargo:rustc-link-lib=c++_shared");
+        println!("cargo:rustc-link-lib=nativewindow");
+        println!("cargo:rustc-link-lib=android");
+
+        // Help the linker find NDK libraries for the correct target architecture.
+        // zig_target already holds the NDK arch directory name (e.g. "arm-linux-androideabi").
+        let api = android_api.unwrap_or("30");
+        let sysroot_rel = format!(
+            "toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/{}/{}",
+            zig_target, api
+        );
+        if let Ok(ndk_home) = env::var("ANDROID_NDK_HOME").or_else(|_| env::var("NDK_HOME")) {
+            let sysroot_libs = PathBuf::from(ndk_home).join(&sysroot_rel);
+            if sysroot_libs.exists() {
+                println!("cargo:rustc-link-search=native={}", sysroot_libs.display());
+            }
+        }
     }
 
     // Bindings

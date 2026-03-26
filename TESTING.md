@@ -53,8 +53,27 @@ Use **Vitest** with `@testing-library/svelte` to test components in isolation. F
     *   **Goal**: Verify rendering and user interactions.
     *   **Scenarios**:
         *   **Infinite Ribbon**: Render 4 panes. Verify CSS classes for "snap-align" are present.
-        *   **Terminal**: Verify `xterm.js` instance is created/destroyed on mount/unmount.
+        *   **Terminal**: Verify terminal session lifecycle and resize behavior without depending on `xterm.js`.
         *   **Gesture Lock**: Verify that enabling "Gesture Lock" prevents propagation of swipe events.
+
+## 3A. Native Terminal Stack (Ghostty + wgpu)
+
+### Strategy
+Treat the native terminal as a mixed Rust/UI integration point. Keep host-side tests focused on Ghostty state handling and protocol encoding, and reserve Android surface validation for smoke tests.
+
+### Test Types
+*   **Rust unit tests**:
+    *   **Goal**: Verify terminal state transitions and mouse encoding without a device.
+    *   **Scenarios**:
+        *   Ghostty terminal init/write/resize.
+        *   `TerminalSession::encode_mouse_event` emits SGR mouse sequences when mouse tracking is enabled.
+        *   Native render loop compiles on Linux hosts even though Android JNI entrypoints are target-gated.
+*   **Android smoke tests**:
+    *   **Goal**: Validate `Surface` lifecycle, resize/orientation handling, and touch forwarding on hardware/emulator.
+    *   **Scenarios**:
+        *   Surface create -> first frame rendered.
+        *   Orientation change -> terminal resizes without panic.
+        *   Touch interaction reaches the SSH session when mouse mode is enabled.
 
 ## 4. Mobile & E2E
 

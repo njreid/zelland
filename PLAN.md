@@ -5,7 +5,7 @@ This document tracks the evolution of zelland into a resilient mobile command ce
 ## Overview
 
 - **Target Platforms:** Android, Linux Desktop
-- **Tech Stack:** Tauri v2, Svelte 5 (Runes), Rust (GotaTun, Russh), xterm.js
+- **Tech Stack:** Tauri v2, Svelte 5 (Runes), Rust (GotaTun, Russh), Ghostty VT, wgpu
 - **Architecture:** Userspace WireGuard Tunnel -> SSH over UDP -> Local Svelte 5 UI
 
 ## Completed Foundation
@@ -16,6 +16,61 @@ This document tracks the evolution of zelland into a resilient mobile command ce
 - [x] Basic Android Intent Handling
 
 ## Milestones
+
+### Phase 9: WGPU + Ghostty Remediation
+
+- Status: partially complete. The Ghostty + wgpu migration landed, but the repo does not support the old plan's "COMPLETED" claim yet.
+
+- **Technical direction preserved from `WGPU_GHOSTTY_PLAN.md`:** `libghostty-vt` (Zig) static library backend, `wgpu` + `glyphon` native Android rendering, JNI for `Surface`/touch handoff, zero-scrollback local terminal state.
+
+#### 9A: Phase 0 - Testing Harness (Dinghy)
+
+- [x] Configure `dinghy.toml` for Android test execution.
+- [x] Validate Android test infrastructure with `test_android_connectivity`.
+- [x] Add Ghostty-focused test coverage in `src-tauri/tests/ghostty_vt_test.rs` for the FFI wrapper and render state.
+
+#### 9B: Phase 1 - Hybrid Mode (`libghostty-vt` backend + `xterm.js` frontend)
+
+- [x] Integrate Zig toolchain build steps in `src-tauri/build.rs`.
+- [x] Generate Rust FFI bindings with `bindgen` in `src-tauri/build.rs`.
+- [x] Refactor `TerminalSession` to use `GhosttyTerminalWrapper`.
+- [x] Validate the Ghostty VT engine through the interim hybrid path before full native rendering.
+
+#### 9C: Phase 2 - Native Surface and wgpu Foundation
+
+- [x] Add Android JNI surface hooks for native renderer startup in `src-tauri/src/renderer/android.rs`.
+- [x] Initialize the native renderer stack with `wgpu`.
+- [x] Integrate `glyphon` for monospace text rendering.
+- [x] Prove the native surface path with initial terminal-grid rendering.
+- [ ] Check in and document the Android `MainActivity.kt` / `SurfaceView` implementation so the lifecycle path is reviewable from the repo.
+
+#### 9D: Phase 3 - Full Integration (Ghostty render state -> native surface)
+
+- [x] Implement `render_native` in `TerminalSession` and drive it from `SshManager`.
+- [x] Implement Ghostty render-state iteration and row dirty inspection in `GhosttyRenderStateWrapper` and `Renderer`.
+- [x] Add JNI touch forwarding through `passTouchToRust` and Ghostty mouse-event encoding.
+- [x] Set `max_scrollback` to `0` for the native terminal path.
+- [x] Make the terminal WebView container transparent so the native surface is visible.
+- [ ] Fix dropped-frame behavior when Ghostty dirty flags are cleared before a renderer/surface is attached.
+- [ ] Replace partial row caching with end-to-end incremental rendering so unchanged rows do not trigger full viewport shaping.
+- [ ] Complete terminal styling support: background colors, underline, reverse video, cursor rendering, and non-debug clear/background behavior.
+- [ ] Replace duplicated `24x32` cell-size constants with measured renderer metrics shared by resize and mouse hit-testing.
+- [ ] Send real pixel dimensions through SSH PTY resize instead of `0, 0`.
+- [ ] Remove the global singleton renderer design in favor of explicit surface/renderer ownership per session or view.
+
+#### 9E: Cleanup, Validation, and Follow-up
+
+- [x] Create `docs/features/WGPU_GHOSTTY_REMEDIATION_DESIGN.md` to document the remediation pass.
+- [x] Move Android-specific renderer dependencies behind Android-only Cargo target sections.
+- [x] Fix `glyphon` renderer setup so host builds compile again.
+- [x] Remove the redundant ANSI viewport payload from the native render flush path.
+- [x] Remove stale main-app `xterm` dependencies.
+- [x] Add focused Rust tests for Ghostty mouse encoding.
+- [x] Update `TESTING.md` for the native terminal stack.
+- [x] Audit the WGPU + Ghostty implementation against `WGPU_GHOSTTY_PLAN.md` and capture refactoring notes in `CODEX_NOTES.md`.
+- [ ] Add a renderer regression test for surface-not-ready / surface-recreated redraw behavior.
+- [ ] Add a resize/orientation lifecycle test for Android surface recreation.
+- [ ] Add renderer-focused verification that unchanged rows are not fully rebuilt after incremental terminal updates.
 
 ### Phase 6: Daemon Migration (Go → Rust) & Annotation System
 
@@ -143,7 +198,7 @@ Integrate push-to-talk speech-to-text from the `src-voice/` prototype into the m
 
 ### Future: Zellij Action Buttons
 
-Expose `zellij -s $SESSION action <action>` via `runZellijAction()` as UI buttons (TopBar for desktop, VirtualKeyboard for mobile).
+Expose `zellij -s $SESSION action <action>` via `runZellijAction()` as UI buttons (TopBar for desktop, KeybarNative for mobile).
 
 - [ ] `new-tab` / `close-tab` — tab lifecycle
 - [ ] `go-to-next-tab` / `go-to-previous-tab` — cycle tabs (better than numbered for >3 tabs)
