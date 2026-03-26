@@ -63,7 +63,7 @@ class MainActivity : TauriActivity() {
 
         mDetector = GestureDetectorCompat(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                Log.d("TouchDebug", "onSingleTapConfirmed: ${e.x}, ${e.y} → passTouchToRust(click)")
+                Log.e("TouchDebug", "onSingleTapConfirmed: ${e.x}, ${e.y} → passTouchToRust(click)")
                 passTouchToRust("click", e.x, e.y)
                 // Focus the hidden native EditText so the system keyboard attaches to it.
                 val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
@@ -128,7 +128,8 @@ class MainActivity : TauriActivity() {
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
             val svVisible = surfaceView?.visibility == android.view.View.VISIBLE
-            Log.d("TouchDebug", "dispatchTouchEvent: DOWN x=${ev.x} y=${ev.y} svVisible=$svVisible")
+            // Use Log.e (error level) so this is never stripped by R8 or filtered by device ROMs.
+            Log.e("TouchDebug", "dispatchTouchEvent: DOWN x=${ev.x} y=${ev.y} svVisible=$svVisible")
         }
         return super.dispatchTouchEvent(ev)
     }
