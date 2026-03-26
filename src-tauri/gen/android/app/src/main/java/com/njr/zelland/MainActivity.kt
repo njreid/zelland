@@ -225,8 +225,15 @@ class MainActivity : TauriActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         )
-        container.addView(surfaceView, fillParams)
+        // WebView must be added FIRST so the SurfaceView (added second) is
+        // last in the FrameLayout child list. Android dispatches touch events
+        // to the last-added child first, so the SurfaceView intercepts touches
+        // when VISIBLE. When GONE (no active session) it is excluded from
+        // dispatch automatically and all touches reach the WebView as normal.
+        // NOTE: setZOrderMediaOverlay(true) controls rendering z-order
+        // independently of the view-hierarchy order used for touch dispatch.
         container.addView(webView, FrameLayout.LayoutParams(fillParams))
+        container.addView(surfaceView, fillParams)
 
         // Hidden 1×1 EditText positioned off-screen — provides a real InputConnection
         // so the system keyboard reliably shows and delivers text to the terminal.
