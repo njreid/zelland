@@ -23,19 +23,29 @@ jobs:
             linker: aarch64-linux-gnu-gcc
             packages: gcc-aarch64-linux-gnu
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-15-intel
           - target: aarch64-apple-darwin
             runner: macos-latest
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Linux cross toolchain
         if: ${{ matrix.packages != '' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y ${{ matrix.packages }}
+          sudo apt-get install -y ${{ matrix.packages }} protobuf-compiler
+
+      - name: Install Linux protobuf compiler
+        if: ${{ startsWith(matrix.runner, 'ubuntu-') && matrix.packages == '' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Install macOS protobuf compiler
+        if: ${{ startsWith(matrix.runner, 'macos-') }}
+        run: brew install protobuf
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
