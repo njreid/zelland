@@ -365,19 +365,7 @@ class MainActivity : TauriActivity() {
                     val ctrl = plugin?.modCtrl == true
                     val alt  = plugin?.modAlt  == true
                     for (ch in text) {
-                        val seq = when {
-                            ctrl && ch.isLetter() ->
-                                (ch.lowercaseChar().code and 0x1f).toChar().toString()
-                            ctrl && ch == '[' -> "\u001b"
-                            ctrl && ch == '\\' -> "\u001c"
-                            ctrl && ch == ']' -> "\u001d"
-                            ctrl && ch == '^' -> "\u001e"
-                            ctrl && ch == '_' -> "\u001f"
-                            ctrl && ch == '@' -> "\u0000"
-                            alt -> "\u001b${ch}"
-                            ch == '\n' -> "\r"
-                            else -> ch.toString()
-                        }
+                        val seq = KeySeqs.charToSeq(ch, ctrl, alt)
                         val js = "window.dispatchEvent(new CustomEvent('kb-input',{detail:{seq:${seq.toJsStr()}}}));"
                         webViewRef?.evaluateJavascript(js, null)
                     }

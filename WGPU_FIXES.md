@@ -8,19 +8,26 @@ Useful reference if the renderer is rebuilt or ported.
 
 ## Architecture Overview
 
+*Updated 2026-03-27 to reflect DrawerLayout native sidebar.*
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Android Activity (MainActivity.kt)                      │
-│                                                          │
-│  FrameLayout                                             │
-│  ├── WebView  (added first → lower touch priority)       │
-│  │   └── Svelte app (UI, sidebar, session list)          │
-│  └── SurfaceView  (added second → higher touch priority) │
-│      └── wgpu Vulkan surface (terminal rendering)        │
-│                                                          │
-│  GestureDetectorCompat (attached to SurfaceView)         │
-│  KeybarPlugin (LinearLayout below viewport)              │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Android Activity (MainActivity.kt)                           │
+│                                                               │
+│  DrawerLayout                                                 │
+│  ├── FrameLayout (main content)                               │
+│  │   ├── WebView  (added first → lower touch priority)        │
+│  │   │   └── Svelte app (welcome screen, modals, logs)        │
+│  │   └── SurfaceView  (added second → higher touch priority)  │
+│  │       └── wgpu Vulkan surface (terminal rendering)         │
+│  └── LinearLayout (left drawer, 300dp)                        │
+│      ├── Header "zelland"                                     │
+│      ├── ScrollView → sessions + hosts tree (native Views)    │
+│      └── Footer row: Restart | +Host | +Session | Settings   │
+│                                                               │
+│  GestureDetectorCompat + ScaleGestureDetector (SurfaceView)  │
+│  KeybarPlugin (LinearLayout below viewport)                   │
+└──────────────────────────────────────────────────────────────┘
          │ JNI                              │ JS bridge
          ▼                                  ▼
 ┌─────────────────┐              ┌──────────────────────┐
@@ -271,3 +278,53 @@ when resize arrives before the surface is ready.
 
 10. **Cell dimensions** — use `renderer::get_cell_size()` for mouse coordinate mapping,
     not compile-time constants. The renderer updates them after font initialisation.
+
+11. **DrawerLayout + SurfaceView coexistence** — `DrawerLayout` cannot intercept edge-swipe
+    gestures from a `SurfaceView` that consumes all touches. Open the drawer programmatically
+    from the `GestureDetector.onFling` callback instead:
+    ```kotlin
+    if (velocityX < -600f && abs(velocityX) > abs(velocityY) * 1.5f) {
+        drawerLayout?.openDrawer(Gravity.START)
+    }
+    ```
+    The `DrawerLayout`'s `setSystemGestureExclusionRects` call on the `SurfaceView` ensures
+    the OS back-gesture doesn't fire on the left edge fling.
+
+12. **Native sidebar data bridge** — push session/host data via a `@JavascriptInterface`
+    (`SidebarNative.updateData(json)`) from a Svelte `$effect`. The effect runs whenever
+    `appState.sessions`, `.hosts`, or `.activeSessionId` change, so the native list stays
+    in sync without polling. Always call `runOnUiThread {}` inside the interface method since
+    JS calls arrive on a background thread.
+
+---
+
+## Fix 6: Native DrawerLayout sidebar touches vs. SurfaceView
+
+**Symptom:** `DrawerLayout.setDrawerLockMode` and edge-swipe gesture detection have no
+effect when the SurfaceView's `OnTouchListener` returns `true` for all events. The drawer
+cannot be opened by swiping from the left edge.
+
+**Root cause:** Android's touch dispatch delivers events to the last-added child first.
+`DrawerLayout` intercepts edge-swipe via `onInterceptTouchEvent`, but the SurfaceView (which
+sits in a child `FrameLayout`) consumes the event before it bubbles up to the `DrawerLayout`.
+
+**Fix:** Don't rely on edge-swipe interception. Instead, detect a left-fling in the
+SurfaceView's existing `GestureDetector` and open the drawer imperatively:
+
+```kotlin
+override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+    if (vx < -600f && abs(vx) > abs(vy) * 1.5f) {
+        drawerLayout?.openDrawer(Gravity.START)
+        return true
+    }
+    return false
+}
+```
+
+`DrawerLayout` still handles its own swipe-to-close and the scrim tap-to-close natively
+because those events originate outside the SurfaceView (the SurfaceView is GONE when there
+is no active session, and the DrawerLayout's scrim sits above everything when the drawer
+is open).
+
+**Rule:** With a SurfaceView that consumes all touches, always open `DrawerLayout`
+programmatically. Never rely on the DrawerLayout's edge-detection interceptor.

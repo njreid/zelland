@@ -10,6 +10,7 @@
     import type { DaemonRecentSession } from '$lib/stores/app.svelte';
     import { platform } from '@tauri-apps/plugin-os';
     import { handleKbInput } from '$lib/utils/kb-input';
+    import { timeAgo } from '$lib/utils/time-ago';
     import AgentNotificationToast from '$lib/components/AgentNotificationToast.svelte';
 
     let sidebarOpen = $state(false);
@@ -160,18 +161,6 @@
         await appState.connectDaemonSession(entry);
         appState.triggerTerminalFocus();
         appState.triggerTerminalResize();
-    }
-
-    function timeAgo(isoString: string): string {
-        const ms = Date.now() - new Date(isoString).getTime();
-        const s = Math.floor(ms / 1000);
-        if (s < 60) return 'just now';
-        const m = Math.floor(s / 60);
-        if (m < 60) return `${m}m ago`;
-        const h = Math.floor(m / 60);
-        if (h < 24) return `${h}h ago`;
-        const d = Math.floor(h / 24);
-        return `${d}d ago`;
     }
 
     function scrollToPane(index: number) {
