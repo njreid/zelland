@@ -1,151 +1,186 @@
 # zelland
 
-**Zellij + Android = zelland**
+**A native Android + Linux terminal client built on Tauri, wgpu, and SSH**
 
-*A native Android client for Zellij terminal multiplexer*
-
-[![Android](https://img.shields.io/badge/Platform-Android%207.0%2B-green.svg)](https://android.com)
-[![Kotlin](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org)
-[![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-orange.svg)](https://developer.android.com/jetpack/compose)
+[![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20%7C%20Linux-green.svg)](https://android.com)
+[![Rust](https://img.shields.io/badge/Language-Rust%20%2B%20Kotlin-blue.svg)](https://rust-lang.org)
+[![Tauri](https://img.shields.io/badge/Framework-Tauri%20v2-orange.svg)](https://tauri.app)
 
 ---
 
 ## What is zelland?
 
-**zelland** is a modern Android application that brings the power of [Zellij](https://zellij.dev) terminal multiplexer to your mobile device. Built with **Jetpack Compose**, it provides a streamlined interface for connecting directly to remote Zellij web servers via HTTPS, featuring specia[lized terminal controls and multi-session management.](#dzpnz)
+zelland is a mobile-first SSH terminal and command center. It connects directly to remote hosts via SSH, renders the terminal natively using **wgpu + glyphon** (Vulkan on Android), and optionally syncs collaborative markdown annotations through a local Rust daemon (`zellandd`).
 
-{}
+The app is built with **Tauri v2 + Svelte 5** for the UI layer and a hand-rolled Rust renderer for the terminal surface — no WebView terminal emulation.
 
-### Key Features
-
-🌐 **Direct HTTPS Integration**
-
-- Connect directly to remote Zellij web servers (default port 8082).
-- Support for session-specific routes (e.g., `https://host/my-session`).
-- Automatic trust for self-signed certificates (ideal for private networks like Tailscale).
-
-⌨️ **Specialized Terminal Shortcut Bar**
-
-- **Persistent Modifiers**: **C** (Ctrl), **A** (Alt), and **M** (Meta) with smart latching:
-o
-
-- *Single Tap*: One-shot modifier for the next key.
-- *Double Tap*: Locked state for repetitive shortcuts.
-- **Gesture-Based Navigation**:
-  - **4-Way Arrow Button**: Drag in any direction to send a single arrow key.
-  - **Cardinal Overlay**: Tap to reveal a multi-click D-Pad with PgUp/PgDn for rapid navigation.
-- **Optimized Keys**: Dedicated **ESC** (compact), **Tab** (`|->`), and **Enter** buttons.
-
-📱 **Mobile-First UX**
-
-- **Jetpack Compose UI**: Smooth, reactive interface with dark terminal aesthetics.
-- **Slim Keyboard**: System keyboard is optimized (`textNoSuggestions`) to maximize screen space.
-- **Session Persistence**: Sessions are stored locally and reloaded automatically on app start.
-
-🔤 **Terminal Rendering**
-
-- Forced monospace font rendering.
-- Disabled ligatures and optimized letter spacing for perfect character alignment.
+---
 
 ## Architecture
 
-```text
-┌─────────────────────────────────────────────────┐
-│                  zelland App                     │
-│  ┌───────────────────────────────────────────┐  │
-│  │          Jetpack Compose UI               │  │
-│  │      (Terminal Bar + Modifiers)           │  │
-│  └───────────────────────────────────────────┘  │
-│                      ↓↑                          │
-│  ┌───────────────────────────────────────────┐  │
-│  │          Android WebView                  │  │
-│  │     Loading: https://host:8082/session    │  │
-│  └───────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────┘
-                       ↓↑
-┌─────────────────────────────────────────────────┐
-│              Remote Host (Zellij)                │
-│  ┌───────────────────────────────────────────┐  │
-│  │      Zellij Web Server (port 8082)        │  │
-│  │         Started via: zellij web           │  │
-│  └───────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────┘
 ```
-
-## Quick Start
-
-### Prerequisites
-
-**On your remote server:**
-
-- [Zellij](https://zellij.dev) installed (0.43.0+ for web support).
-- Zellij web server running: `zellij web`.
-
-**On your Android device:**
-
-- Android 7.0 (API 24) or higher.
-- Network access to the remote host (e.g., via Tailscale or VPN).
-
-### Usage
-
-1. **Add Session**
-   - Tap the **"+"** button on the main screen.
-   - Enter a **Connection Name**, the **Host** address, and an optional **Zellij Session Name**.
-   - If a session name is provided, the app will connect to that specific route.
-
-2. **Connect**
-   - Tap **"Connect"** on a session card.
-   - zelland will verify reachability and load the terminal in the native WebView.
-
-3. **Navigate**
-   - Use the **Shortcut Bar** for modifiers and special keys.
-   - **Double-tap** C/A/M to lock them on.
-   - **Drag** the arrows button for single movements or **tap** it for the cardinal overlay.
-   - **Long-press** PgDn in the overlay to send PgUp.
-
-## Building from Source
-
-### Prerequisites
-
-- Android Studio Iguana or newer.
-- Kotlin 1.9.22+.
-
-### Build
-
-```bash
-./gradlew assembleDebug
-```
-
-## Project Structure
-
-```text
-zelland/
-├── app/src/main/java/com/zelland/
-│   ├── MainActivity.kt        # Compose Entry point
-│   ├── ui/
-│   │   ├── MainScreen.kt      # Session list UI
-│   │   ├── TerminalScreen.kt  # Terminal UI & specialized bar
-│   │   ├── TerminalWebView.kt # Modified WebView for terminal input
-│   │   └── zellandApp.kt      # Main Navigation logic
-│   ├── viewmodel/
-│   │   └── TerminalViewModel.kt # Session management logic
-│   └── model/
-│       └── TerminalSession.kt # Data model
-└── build.gradle.kts           # Build configuration
-```
-
-## License
-
-```text
-Copyright 2026 zelland Contributors
-Licensed under the Apache License, Version 2.0
+┌──────────────────────────────────────────────────────────────┐
+│  Android Activity (MainActivity.kt)                           │
+│                                                               │
+│  DrawerLayout                                                 │
+│  ├── FrameLayout (main content)                               │
+│  │   ├── WebView  (Svelte app — welcome screen, modals)       │
+│  │   └── SurfaceView  (wgpu Vulkan terminal surface)          │
+│  └── LinearLayout (left sidebar — sessions + hosts tree)      │
+│                                                               │
+│  GestureDetector: tap → focus, 2-finger scroll, pinch zoom   │
+│  KeybarPlugin: IME toolbar with Ctrl / Alt / Meta modifiers   │
+└──────────────────────────────────────────────────────────────┘
+         │ JNI                              │ JS bridge
+         ▼                                  ▼
+┌─────────────────┐              ┌──────────────────────┐
+│  Rust (src-tauri)│             │  Svelte 5 frontend    │
+│  wgpu renderer  │              │  welcome / modals     │
+│  SSH manager    │              │  markdown pane        │
+│  libghostty-vt  │              │  annotation editor    │
+└────────┬────────┘              └──────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────┐
+│  russh → SSH channel → remote host       │
+│  VT bytes → libghostty-vt → render state │
+│  Touch → SGR mouse sequences → SSH       │
+└──────────────────────────────────────────┘
+         │ HTTP REST + WebSocket
+         ▼
+┌──────────────────────────────────────────┐
+│  zellandd (daemon-rs)                    │
+│  axum + tokio · project/asset/annotation │
+│  YJS-based collaborative sync            │
+└──────────────────────────────────────────┘
 ```
 
 ---
 
-Made with ❤️ for the terminal-loving mobile community
+## Key Features
 
-# Comments
+### Terminal Rendering
+- **wgpu + glyphon** rendering via Vulkan (Android) or system GPU (Linux)
+- Full **ANSI color** support: 16-color palette + 24-bit RGB
+- **Bold**, *italic*, reverse-video, and underline attributes
+- Hardware-accelerated cursor rectangle
+- **Text selection** with native Copy/Paste action bar
+- **Pinch-to-zoom** font size scaling
 
-## dzpnz
+### SSH & Connectivity
+- Direct SSH with password or public-key authentication (`russh`)
+- **SSH keepalives** (30 s interval) to survive background screen-off
+- **WireGuard** tunnel support for private network access
+- Per-session resize, scroll, and SGR mouse tracking
 
+### Android Native UI
+- **DrawerLayout sidebar**: swipe-left (or fling) opens a native sessions + hosts panel
+- **Foreground service + wake lock**: SSH sessions survive screen lock
+- **KeybarPlugin**: persistent IME toolbar with latching Ctrl/Alt/Meta modifiers and arrow keys
+- Bottom-sheet modals (Add Host, Add Session, Settings) rendered through the WebView layer
+- Back button closes open drawer; surface lifecycle handles screen lock/unlock
+
+### Collaborative Annotations (`zellandd`)
+- Local Rust daemon serving projects, assets, and markdown files
+- **YJS-based real-time sync** for inline text and code-block annotations
+- REST + WebSocket API consumed by the Svelte markdown pane
+
+---
+
+## Project Structure
+
+```
+zelland/
+├── src/                        # Svelte 5 frontend
+│   ├── routes/+page.svelte     # Main app shell
+│   └── lib/
+│       ├── components/         # Sidebar, MarkdownPane, modals
+│       └── utils/              # key-mapper, time-ago, kb-input
+├── src-tauri/
+│   ├── src/
+│   │   ├── lib.rs              # Tauri commands
+│   │   ├── ssh.rs              # SshManager, russh client
+│   │   ├── terminal.rs         # TerminalSession (libghostty-vt)
+│   │   ├── ghostty.rs          # C FFI bindings
+│   │   ├── renderer/           # wgpu + glyphon renderer
+│   │   │   ├── mod.rs          # draw_ghostty_state, render loop
+│   │   │   └── android.rs      # JNI surface/touch/resize entry points
+│   │   ├── network.rs          # WireGuard config
+│   │   └── keystore.rs         # SSH key management
+│   └── gen/android/            # Android project
+│       └── app/src/main/java/com/njr/zelland/
+│           ├── MainActivity.kt              # DrawerLayout, SurfaceView, gestures
+│           ├── KeybarPlugin.kt             # IME toolbar
+│           ├── KeySeqs.kt                  # IME char → terminal sequence mapping
+│           ├── KeybarSeqs.kt               # Arrow key escape sequences
+│           └── TerminalSessionService.kt   # Foreground service + wake lock
+├── daemon-rs/                  # zellandd daemon
+│   └── src/
+│       ├── main.rs             # axum server, CLI
+│       ├── store/              # annotation storage (KDL)
+│       ├── handlers/           # REST handlers
+│       └── ws.rs               # WebSocket sync
+├── libghostty/                 # libghostty-vt submodule
+└── proto/zelland.proto         # Protobuf schema (prost 0.14.3)
+```
+
+---
+
+## Building
+
+### Android
+
+```bash
+# Prerequisites: Android SDK, NDK, Rust android targets
+rustup target add aarch64-linux-android
+
+cd src-tauri
+npm install
+npm run tauri android build
+```
+
+### Linux Desktop
+
+```bash
+cd src-tauri
+npm install
+npm run tauri dev
+```
+
+### Daemon
+
+```bash
+cd daemon-rs
+cargo build --release
+./target/release/zellandd --port 7700
+```
+
+---
+
+## Testing
+
+| Layer | Runner | Count |
+|---|---|---|
+| TypeScript utils | `npm run test` (Vitest) | ~60 tests |
+| Rust src-tauri | `cargo test` in `src-tauri/` | ~12 tests |
+| Rust daemon-rs | `cargo test` in `daemon-rs/` | ~58 tests |
+| Kotlin unit | `./gradlew test` in `src-tauri/gen/android/` | ~25 tests |
+
+See [`TESTING.md`](TESTING.md) for the full strategy and manual smoke test checklist.
+
+---
+
+## Docs
+
+- [`WGPU_FIXES.md`](WGPU_FIXES.md) — wgpu + glyphon Android rendering architecture and known fixes
+- [`CLAUDE_NOTES.md`](CLAUDE_NOTES.md) — code review notes and open issues
+- [`TESTING.md`](TESTING.md) — test strategy and smoke test checklist
+
+---
+
+## License
+
+```
+Copyright 2026 zelland Contributors
+Licensed under the Apache License, Version 2.0
+```
