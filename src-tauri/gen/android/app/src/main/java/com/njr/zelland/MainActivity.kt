@@ -538,6 +538,7 @@ class MainActivity : TauriActivity() {
         }
         sidebarTrashBtn = trashBtn
         footer.addView(trashBtn, btnParams)
+        footer.addView(footerBtn("⚠\nLog",     "native-show-errors"), LinearLayout.LayoutParams(btnParams))
         footer.addView(footerBtn("+\nHost",    "native-add-host"),    LinearLayout.LayoutParams(btnParams))
         footer.addView(footerBtn("+\nSession", "native-add-session"), LinearLayout.LayoutParams(btnParams))
         footer.addView(footerBtn("⚙\nSettings","native-settings"),    LinearLayout.LayoutParams(btnParams))

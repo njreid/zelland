@@ -19,7 +19,7 @@
     let currentPaneIndex = $state(0);
 
     // Android modal forms (triggered by native sidebar buttons)
-    type AndroidModal = 'addHost' | 'addSession' | 'settings' | null;
+    type AndroidModal = 'addHost' | 'addSession' | 'settings' | 'errors' | null;
     let androidModal = $state<AndroidModal>(null);
 
     // Add Host form
@@ -104,6 +104,7 @@
             window.addEventListener('native-add-host',    () => { androidModal = 'addHost'; });
             window.addEventListener('native-add-session', () => { androidModal = 'addSession'; });
             window.addEventListener('native-settings',    () => { androidModal = 'settings'; });
+            window.addEventListener('native-show-errors', () => { androidModal = 'errors'; });
             window.addEventListener('native-connect-session', (e) => {
                 const { id } = (e as CustomEvent<{ id: string }>).detail;
                 connectSession(id);
@@ -468,6 +469,25 @@
                     <div class="modal-actions" style="margin-top:1.5rem;">
                         <button onclick={closeModal}>Done</button>
                     </div>
+                </div>
+
+            {:else if androidModal === 'errors'}
+                <div class="modal-header">
+                    <span>Error Log</span>
+                    <button type="button" class="modal-close" onclick={closeModal}><X size={18} /></button>
+                </div>
+                <div class="modal-form" style="padding: 0;">
+                    {#if appState.errorLogs.length === 0}
+                        <p style="padding: 1rem; color: var(--muted); font-size: 0.85rem;">No errors recorded.</p>
+                    {:else}
+                        <div style="overflow-y: auto; max-height: 60vh;">
+                            {#each [...appState.errorLogs].reverse() as entry}
+                                <div style="padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.78rem; font-family: monospace; color: #f7768e; word-break: break-word;">
+                                    {entry.message}
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
                 </div>
             {/if}
         </div>

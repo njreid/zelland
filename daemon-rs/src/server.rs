@@ -7,7 +7,7 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::assets::AssetManager;
 use crate::config::Config;
@@ -96,6 +96,19 @@ async fn loopback_guard(
     next.run(request).await
 }
 
+fn write_port_file(port: u16) {
+    let path = match std::env::var("HOME") {
+        Ok(home) => std::path::PathBuf::from(home)
+            .join(".local/state/zelland/zlnd.port"),
+        Err(_) => return,
+    };
+    if let Err(e) = std::fs::write(&path, port.to_string()) {
+        warn!("Failed to write port file {}: {}", path.display(), e);
+    } else {
+        debug!("Wrote port {} to {}", port, path.display());
+    }
+}
+
 /// Start the server. Call after building AppState.
 pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let asset_manager = AssetManager::new();
@@ -125,8 +138,10 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    info!("zlnd listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    let bound_addr = listener.local_addr()?;
+    info!("zlnd listening on {}", bound_addr);
+    write_port_file(bound_addr.port());
     axum::serve(listener, app).await?;
     Ok(())
 }

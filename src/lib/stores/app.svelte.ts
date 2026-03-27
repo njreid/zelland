@@ -23,6 +23,7 @@ export interface Host {
     private_key_path?: string;
     reachable: boolean;
     error?: string;
+    helperPort?: number;
     helperError?: string;
     projects: Project[];
 }
@@ -107,11 +108,16 @@ function createAppState() {
     // --- MD file ordering (logic in src/lib/utils/md-ordering.ts) ---
     const PRIORITY_ORDER = ['README.md', 'DESIGN.md', 'PLAN.md'];
 
+    function helperUrl(hostAddress: string): string {
+        const port = hosts.find(h => h.address === hostAddress)?.helperPort ?? 8083;
+        return `http://${hostAddress}:${port}`;
+    }
+
     async function loadProjectFiles(hostAddress: string, projectId: string) {
         try {
             const files = await invoke<{ root_md: string[]; docs_md: string[] }>(
                 'daemon_list_project_files',
-                { url: `http://${hostAddress}:8083`, projectId }
+                { url: helperUrl(hostAddress), projectId }
             );
             projectMdFiles = { root: files.root_md, docs: files.docs_md };
             // Auto-open priority files that exist in the project
@@ -157,8 +163,8 @@ function createAppState() {
         };
     }
 
-    async function ensureSessionHelper(session: Session) {
-        await invoke("ensure_remote_helper", {
+    async function ensureSessionHelper(session: Session): Promise<number> {
+        return await invoke<number>("ensure_remote_helper", {
             config: buildSshConfig({
                 host: session.hostAddress,
                 port: session.port,
@@ -172,8 +178,8 @@ function createAppState() {
         });
     }
 
-    async function ensureHostHelper(host: Host) {
-        await invoke("ensure_remote_helper", {
+    async function ensureHostHelper(host: Host): Promise<number> {
+        return await invoke<number>("ensure_remote_helper", {
             config: buildSshConfig({
                 host: host.address,
                 port: host.port,
@@ -191,7 +197,7 @@ function createAppState() {
         for (const host of hosts) {
             try {
                 const entries = await invoke<any[]>("daemon_get_recent_sessions", {
-                    url: `http://${host.address}:8083`
+                    url: `http://${host.address}:${host.helperPort ?? 8083}`
                 });
                 for (const e of entries) {
                     results.push({
@@ -248,7 +254,8 @@ function createAppState() {
         // Helper bootstrap is best-effort — a failure here doesn't block project fetch in
         // case the daemon was already running from a previous connection.
         try {
-            await ensureHostHelper(host);
+            const port = await ensureHostHelper(host);
+            host.helperPort = port;
             host.helperError = undefined;
         } catch (e) {
             const err = String(e);
@@ -258,7 +265,7 @@ function createAppState() {
         }
 
         try {
-            const projects = await invoke<any[]>("daemon_get_projects", { url: `http://${host.address}:8083` });
+            const projects = await invoke<any[]>("daemon_get_projects", { url: `http://${host.address}:${host.helperPort ?? 8083}` });
             host.projects = projects.map(p => ({ ...p, hostId: host.id }));
             host.reachable = true;
             host.error = undefined;
@@ -502,13 +509,15 @@ function createAppState() {
 
             (async () => {
                 try {
-                    await ensureSessionHelper(session);
+                    const port = await ensureSessionHelper(session);
+                    const hostRecord = hosts.find(h => h.address === session.hostAddress);
+                    if (hostRecord) hostRecord.helperPort = port;
                     await invoke("daemon_record_session", {
-                        url: `http://${session.hostAddress}:8083`,
+                        url: helperUrl(session.hostAddress),
                         sessionName: session.zellijSession
                     });
                     fetchDaemonRecentSessions().catch(() => {});
-                    await invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` });
+                    await invoke("daemon_connect", { url: `ws://${session.hostAddress}:${port}/ws` });
                     daemonConnected = true;
                 } catch (e) {
                     const err = String(e);
@@ -820,6 +829,7 @@ function createAppState() {
         get projectMdFiles() { return projectMdFiles; },
         get loadedFiles() { return loadedFiles; },
         get logs() { return logs; },
+        get errorLogs() { return logs.filter(l => l.type === 'error'); },
         get sshKeys() { return sshKeys; },
         get viewUpdateTrigger() { return viewUpdateTrigger; },
         get daemonConnected() { return daemonConnected; },

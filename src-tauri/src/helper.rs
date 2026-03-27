@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use serde::Deserialize;
 use tauri::State;
 
@@ -12,7 +12,7 @@ use crate::ManagedKeyManager;
 
 const HELPER_NAME: &str = "zlnd";
 const HELPER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const HELPER_PORT: u16 = 8083;
+const HELPER_PORT_FILE: &str = ".local/state/zelland/zlnd.port";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RemotePlatform {
@@ -47,7 +47,7 @@ pub async fn ensure_remote_helper(
     ssh_state: State<'_, SshManager>,
     key_state: State<'_, ManagedKeyManager>,
     config: SshConfig,
-) -> Result<(), String> {
+) -> Result<u16, String> {
     ensure_remote_helper_inner(&ssh_state, key_state.0.clone(), &config).await
 }
 
@@ -55,7 +55,7 @@ pub async fn ensure_remote_helper_inner(
     ssh: &SshManager,
     key_manager: Arc<dyn KeyManager>,
     config: &SshConfig,
-) -> Result<(), String> {
+) -> Result<u16, String> {
     info!("Ensuring remote helper on {}", config.host);
 
     ssh.run_command(
@@ -97,19 +97,25 @@ pub async fn ensure_remote_helper_inner(
         replaced_binary = true;
     }
 
-    let version_url = helper_version_url(config);
-    let helper_healthy = helper_matches_expected_version(&version_url).await;
-
-    if replaced_binary || !helper_healthy {
-        ssh.run_command(
-            config.clone(),
-            start_command(true),
-            key_manager,
-        )
-        .await?;
+    // If we didn't replace the binary, check if the helper is already healthy
+    // using whatever port it's currently listening on.
+    if !replaced_binary {
+        if let Some(port) = read_remote_port(ssh, key_manager.clone(), config).await {
+            if helper_matches_expected_version(&helper_version_url(config, port)).await {
+                return Ok(port);
+            }
+        }
     }
 
-    wait_for_helper(&version_url).await
+    // Start (or restart after binary replacement) the helper.
+    ssh.run_command(
+        config.clone(),
+        start_command(replaced_binary),
+        key_manager.clone(),
+    )
+    .await?;
+
+    wait_for_helper_with_port(ssh, key_manager, config).await
 }
 
 async fn detect_remote_platform(
@@ -142,6 +148,22 @@ async fn read_remote_helper_version(
     Ok(parse_helper_version(&output))
 }
 
+async fn read_remote_port(
+    ssh: &SshManager,
+    key_manager: Arc<dyn KeyManager>,
+    config: &SshConfig,
+) -> Option<u16> {
+    let output = ssh
+        .run_command(
+            config.clone(),
+            format!("cat ~/{HELPER_PORT_FILE} 2>/dev/null || true"),
+            key_manager,
+        )
+        .await
+        .ok()?;
+    output.trim().parse().ok()
+}
+
 fn parse_remote_platform(output: &str) -> Result<RemotePlatform, String> {
     let mut lines = output.lines().map(str::trim).filter(|line| !line.is_empty());
     let os = lines.next().ok_or_else(|| "Remote platform probe returned no OS".to_string())?;
@@ -166,8 +188,8 @@ fn parse_helper_version(output: &str) -> Option<String> {
         .map(|part| part.trim().trim_start_matches('v').to_string())
 }
 
-fn helper_version_url(config: &SshConfig) -> String {
-    format!("http://{}:{HELPER_PORT}/api/v1/meta/version", config.host)
+fn helper_version_url(config: &SshConfig, port: u16) -> String {
+    format!("http://{}:{port}/api/v1/meta/version", config.host)
 }
 
 async fn helper_matches_expected_version(url: &str) -> bool {
@@ -188,18 +210,37 @@ async fn helper_matches_expected_version(url: &str) -> bool {
     }
 }
 
-async fn wait_for_helper(url: &str) -> Result<(), String> {
-    for _ in 0..20 {
-        if helper_matches_expected_version(url).await {
-            return Ok(());
+async fn wait_for_helper_with_port(
+    ssh: &SshManager,
+    key_manager: Arc<dyn KeyManager>,
+    config: &SshConfig,
+) -> Result<u16, String> {
+    // Give the helper a moment to start before first probe.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    for _ in 0..10 {
+        if let Some(port) = read_remote_port(ssh, key_manager.clone(), config).await {
+            // Port file found — HTTP-poll for health at that port.
+            let url = helper_version_url(config, port);
+            for _ in 0..10 {
+                if helper_matches_expected_version(&url).await {
+                    return Ok(port);
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            return Err(format!(
+                "Remote helper started on port {port} but did not become healthy — \
+                 check ~/.local/state/zelland/zlnd.log on the remote host"
+            ));
         }
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
-    Err(format!(
-        "Remote helper did not become healthy at {url} after 10 s — \
+    Err(
+        "Remote helper did not write port file after 10 s — \
          check ~/.local/state/zelland/zlnd.log on the remote host"
-    ))
+            .to_string(),
+    )
 }
 
 async fn load_helper_binary(platform: RemotePlatform) -> Result<Vec<u8>, String> {
@@ -295,14 +336,17 @@ async fn write_helper_cache(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn start_command(force_restart: bool) -> String {
-    let restart = if force_restart {
-        "if command -v pkill >/dev/null 2>&1; then pkill -u \"$USER\" -f \"$HOME/bin/zlnd\" >/dev/null 2>&1 || true; fi;"
+    let kill = if force_restart {
+        "if command -v pkill >/dev/null 2>&1; then pkill -u \"$USER\" -f \"$HOME/bin/zlnd\" >/dev/null 2>&1 || true; fi; rm -f ~/.local/state/zelland/zlnd.port;"
     } else {
         ""
     };
 
     format!(
-        "mkdir -p ~/.local/state/zelland ~/bin && {restart} if command -v pgrep >/dev/null 2>&1 && pgrep -u \"$USER\" -f \"$HOME/bin/zlnd\" >/dev/null 2>&1; then exit 0; fi && nohup \"$HOME/bin/zlnd\" >\"$HOME/.local/state/zelland/zlnd.log\" 2>&1 </dev/null &"
+        "mkdir -p ~/.local/state/zelland ~/bin && {kill} \
+         if command -v pgrep >/dev/null 2>&1 && pgrep -u \"$USER\" -f \"$HOME/bin/zlnd\" >/dev/null 2>&1; \
+         then exit 0; fi && \
+         nohup \"$HOME/bin/zlnd\" >\"$HOME/.local/state/zelland/zlnd.log\" 2>&1 </dev/null &"
     )
 }
 
@@ -333,6 +377,14 @@ mod tests {
     fn start_command_restarts_when_requested() {
         let cmd = start_command(true);
         assert!(cmd.contains("pkill"));
+        assert!(cmd.contains("nohup"));
+        assert!(cmd.contains("zlnd.port"));
+    }
+
+    #[test]
+    fn start_command_skips_kill_when_not_forced() {
+        let cmd = start_command(false);
+        assert!(!cmd.contains("pkill"));
         assert!(cmd.contains("nohup"));
     }
 }

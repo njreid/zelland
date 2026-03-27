@@ -15,7 +15,7 @@ impl Default for Config {
             .unwrap_or_default();
 
         Config {
-            port: 8083,
+            port: 0,   // 0 = let OS assign a free port
             cert_file: None,
             key_file: None,
             projects_path,
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let cfg = Config::default();
-        assert_eq!(cfg.port, 8083);
+        assert_eq!(cfg.port, 0);
         assert!(cfg.cert_file.is_none());
         assert!(cfg.key_file.is_none());
         // projects_path should end with "code"
@@ -148,7 +148,7 @@ projects_path "/srv/projects"
     #[test]
     fn test_parse_empty_config_uses_defaults() {
         let cfg = Config::parse("").unwrap();
-        assert_eq!(cfg.port, 8083);
+        assert_eq!(cfg.port, 0);
     }
 
     #[test]
