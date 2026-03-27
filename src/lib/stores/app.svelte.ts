@@ -83,6 +83,7 @@ function createAppState() {
     let daemonConnected = $state(false);
     let daemonRecentSessions = $state<DaemonRecentSession[]>([]);
     let lastAgentNotification = $state<AgentNotification | null>(null);
+    let pinnedProjects = $state<{hostId: string, projectName: string}[]>([]);
 
     // --- Derived ---
     const activeSession = $derived(
@@ -222,6 +223,7 @@ function createAppState() {
             await store.set("markdownFontSize", markdownFontSize);
             await store.set("markdownFontWeight", markdownFontWeight);
             await store.set("recentSessionIds", recentSessionIds);
+            await store.set("pinnedProjects", pinnedProjects.map(p => ({ ...p })));
             await store.save();
         } catch (e) {
             console.error("Failed to save to store:", e);
@@ -394,6 +396,7 @@ function createAppState() {
 
         async removeHost(hostId: string) {
             hosts = hosts.filter(h => h.id !== hostId);
+            pinnedProjects = pinnedProjects.filter(p => p.hostId !== hostId);
             await saveToStore();
         },
 
@@ -419,6 +422,47 @@ function createAppState() {
             sessions = sessions.filter(s => s.id !== sessionId);
             if (activeSessionId === sessionId) activeSessionId = null;
             await saveToStore();
+        },
+
+        togglePinProject(hostId: string, projectName: string) {
+            const idx = pinnedProjects.findIndex(p => p.hostId === hostId && p.projectName === projectName);
+            if (idx >= 0) {
+                pinnedProjects = pinnedProjects.filter((_, i) => i !== idx);
+            } else {
+                pinnedProjects = [...pinnedProjects, { hostId, projectName }];
+            }
+            saveToStore();
+        },
+
+        unpinProject(hostId: string, projectName: string) {
+            pinnedProjects = pinnedProjects.filter(p => !(p.hostId === hostId && p.projectName === projectName));
+            saveToStore();
+        },
+
+        async openProjectByName(hostId: string, projectName: string) {
+            const host = hosts.find(h => h.id === hostId);
+            if (!host) return;
+            const project = host.projects.find(p => (p.name ?? p.session_name) === projectName);
+            if (project) {
+                await this.activateProject(hostId, project.id);
+                return;
+            }
+            // Project not yet in cached list — create session using project name
+            const sessionId = `project-${hostId}-${projectName}`;
+            let session = sessions.find(s => s.id === sessionId);
+            if (!session) {
+                session = {
+                    id: sessionId, label: projectName,
+                    hostAddress: host.address, username: host.username, password: host.password,
+                    port: host.port, type: 'ssh', zellijSession: projectName,
+                    projectRoot: `~/code/${projectName}`,
+                    key_id: host.key_id, private_key_path: host.private_key_path,
+                    status: 'disconnected'
+                };
+                sessions.push(session);
+                await saveToStore();
+            }
+            this.connectSession(sessionId);
         },
 
         getSshConfig(sessionId: string) {
@@ -617,6 +661,7 @@ function createAppState() {
             const savedMarkdownFontSize = await store.get<number>("markdownFontSize");
             const savedMarkdownFontWeight = await store.get<string>("markdownFontWeight");
             const savedRecentIds = await store.get<string[]>("recentSessionIds");
+            const savedPinnedProjects = await store.get<{hostId: string, projectName: string}[]>("pinnedProjects");
 
             if (savedHosts) hosts = savedHosts.map(h => ({ ...h, port: h.port ?? 22, reachable: false, projects: [] }));
             if (savedSessions) sessions = savedSessions.map(s => ({ ...s, port: s.port ?? 22, status: 'disconnected' }));
@@ -625,6 +670,7 @@ function createAppState() {
             if (savedMarkdownFontSize) markdownFontSize = savedMarkdownFontSize;
             if (savedMarkdownFontWeight) markdownFontWeight = savedMarkdownFontWeight;
             if (savedRecentIds) recentSessionIds = savedRecentIds;
+            if (savedPinnedProjects) pinnedProjects = savedPinnedProjects;
             
             for (const host of hosts) fetchProjectsForHost(host.id);
             fetchSshKeys();
@@ -764,6 +810,7 @@ function createAppState() {
         get daemonConnected() { return daemonConnected; },
         get daemonRecentSessions() { return daemonRecentSessions; },
         get lastAgentNotification() { return lastAgentNotification; },
+        get pinnedProjects() { return pinnedProjects; },
 
         // Spread the methods
         ...methods

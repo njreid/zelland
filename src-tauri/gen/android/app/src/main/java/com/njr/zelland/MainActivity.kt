@@ -37,6 +37,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.ViewCompat
@@ -68,6 +69,10 @@ class MainActivity : TauriActivity() {
     // Native sidebar
     private var drawerLayout: DrawerLayout? = null
     private var sidebarSessionsList: LinearLayout? = null
+    private var sidebarTrashMode = false
+    private var sidebarTrashBtn: TextView? = null
+    private val expandedHostIds = mutableSetOf<String>()
+    private var lastSidebarJson: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -270,6 +275,8 @@ class MainActivity : TauriActivity() {
                 }
             }
             override fun onDrawerClosed(drawerView: View) {
+                sidebarTrashMode = false
+                sidebarTrashBtn?.setTextColor(Color.parseColor("#a9b1d6"))
                 webViewRef?.post {
                     webViewRef?.evaluateJavascript(
                         "window.dispatchEvent(new CustomEvent('native-drawer-closed'))", null
@@ -516,10 +523,24 @@ class MainActivity : TauriActivity() {
         }
 
         val btnParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        footer.addView(footerBtn("↺\nRestart", "native-reload-terminal"), btnParams)
-        footer.addView(footerBtn("+\nHost",    "native-add-host"),         LinearLayout.LayoutParams(btnParams))
-        footer.addView(footerBtn("+\nSession", "native-add-session"),      LinearLayout.LayoutParams(btnParams))
-        footer.addView(footerBtn("⚙\nSettings","native-settings"),         LinearLayout.LayoutParams(btnParams))
+        val trashBtn = TextView(this).apply {
+            text = "🗑\nTrash"
+            setTextColor(Color.parseColor("#a9b1d6"))
+            textSize = 11f
+            gravity = Gravity.CENTER
+            val pad = (6 * dp).toInt()
+            setPadding(pad, (10 * dp).toInt(), pad, (10 * dp).toInt())
+            setOnClickListener {
+                sidebarTrashMode = !sidebarTrashMode
+                setTextColor(if (sidebarTrashMode) Color.parseColor("#f7768e") else Color.parseColor("#a9b1d6"))
+                lastSidebarJson?.let { updateNativeSidebarData(it) }
+            }
+        }
+        sidebarTrashBtn = trashBtn
+        footer.addView(trashBtn, btnParams)
+        footer.addView(footerBtn("+\nHost",    "native-add-host"),    LinearLayout.LayoutParams(btnParams))
+        footer.addView(footerBtn("+\nSession", "native-add-session"), LinearLayout.LayoutParams(btnParams))
+        footer.addView(footerBtn("⚙\nSettings","native-settings"),    LinearLayout.LayoutParams(btnParams))
 
         panel.addView(footer, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -537,31 +558,49 @@ class MainActivity : TauriActivity() {
 
     /** Called from JS via SidebarNative.updateData(json). May be called off the UI thread. */
     internal fun updateNativeSidebarData(json: String) {
+        lastSidebarJson = json
         val dp = resources.displayMetrics.density
         try {
             val obj = JSONObject(json)
-            val sessions = obj.optJSONArray("sessions") ?: JSONArray()
-            val hosts    = obj.optJSONArray("hosts")    ?: JSONArray()
-            val activeId = obj.optString("activeSessionId", "")
+            val favorites     = obj.optJSONArray("favorites")     ?: JSONArray()
+            val projectHosts  = obj.optJSONArray("projectHosts")  ?: JSONArray()
+            val savedSessions = obj.optJSONArray("savedSessions") ?: JSONArray()
+            val activeId      = obj.optString("activeSessionId", "")
 
             runOnUiThread {
                 val list = sidebarSessionsList ?: return@runOnUiThread
                 list.removeAllViews()
 
-                if (sessions.length() > 0) {
-                    addSectionLabel(list, "SESSIONS", dp)
-                    for (i in 0 until sessions.length()) {
-                        val s = sessions.getJSONObject(i)
-                        addSessionRow(list, s.getString("id"), s.getString("label"),
-                            s.optString("status", "idle"), s.getString("id") == activeId, dp)
+                if (favorites.length() > 0) {
+                    addSectionLabel(list, "FAVORITES", dp)
+                    for (i in 0 until favorites.length()) {
+                        val fav = favorites.getJSONObject(i)
+                        if (fav.getString("type") == "project") {
+                            addFavoriteProjectRow(list, fav.getString("hostId"),
+                                fav.getString("projectName"), fav.optString("hostLabel", ""), dp)
+                        } else {
+                            addFavoriteSessionRow(list, fav.getString("id"), fav.getString("label"),
+                                fav.optString("status", "connected"), fav.getString("id") == activeId, dp)
+                        }
                     }
                 }
 
-                if (hosts.length() > 0) {
-                    addSectionLabel(list, "HOSTS", dp)
-                    for (i in 0 until hosts.length()) {
-                        val h = hosts.getJSONObject(i)
-                        addHostRow(list, h.getString("label"), h.optBoolean("reachable", false), dp)
+                if (projectHosts.length() > 0) {
+                    addSectionLabel(list, "PROJECT HOSTS", dp)
+                    for (i in 0 until projectHosts.length()) {
+                        val host = projectHosts.getJSONObject(i)
+                        addProjectHostRow(list, host.getString("id"), host.getString("label"),
+                            host.optString("status", "disconnected"),
+                            host.optJSONArray("projects") ?: JSONArray(), dp)
+                    }
+                }
+
+                if (savedSessions.length() > 0) {
+                    addSectionLabel(list, "SAVED SESSIONS", dp)
+                    for (i in 0 until savedSessions.length()) {
+                        val s = savedSessions.getJSONObject(i)
+                        addSavedSessionRow(list, s.getString("id"), s.getString("label"),
+                            s.optString("status", "disconnected"), dp)
                     }
                 }
             }
@@ -583,77 +622,233 @@ class MainActivity : TauriActivity() {
         ))
     }
 
-    private fun addSessionRow(
-        parent: LinearLayout, id: String, label: String,
-        status: String, isActive: Boolean, dp: Float
-    ) {
-        val dotColor = when (status) {
-            "connected"  -> Color.parseColor("#9ece6a")
-            "connecting" -> Color.parseColor("#e0af68")
-            "error"      -> Color.parseColor("#f7768e")
-            else         -> Color.parseColor("#565f89")
+    private fun dispatchJsEvent(eventName: String, detailJson: String) {
+        webViewRef?.post {
+            webViewRef?.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('$eventName',{detail:$detailJson}))", null
+            )
         }
+    }
 
+    private fun statusDotColor(status: String): Int = when (status) {
+        "connected"  -> Color.parseColor("#9ece6a")
+        "connecting" -> Color.parseColor("#e0af68")
+        "error"      -> Color.parseColor("#f7768e")
+        else         -> Color.parseColor("#565f89")
+    }
+
+    private fun addStatusDot(parent: LinearLayout, color: Int, dp: Float) {
+        val dotSize = (8 * dp).toInt()
+        parent.addView(View(this).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
+        }, LinearLayout.LayoutParams(dotSize, dotSize).apply {
+            marginEnd = (10 * dp).toInt()
+            gravity = Gravity.CENTER_VERTICAL
+        })
+    }
+
+    private fun addFavoriteProjectRow(
+        parent: LinearLayout, hostId: String, projectName: String, hostLabel: String, dp: Float
+    ) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            val hPad = (12 * dp).toInt(); val vPad = (8 * dp).toInt()
-            setPadding(hPad, vPad, hPad, vPad)
-            if (isActive) setBackgroundColor(Color.parseColor("#1f2035"))
-            isClickable = true
-            isFocusable = true
+            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            isClickable = true; isFocusable = true
             setOnClickListener {
-                drawerLayout?.closeDrawer(Gravity.START)
-                val safeId = id.replace("\\", "\\\\").replace("'", "\\'")
-                webViewRef?.post {
-                    webViewRef?.evaluateJavascript(
-                        "window.dispatchEvent(new CustomEvent('native-connect-session',{detail:{id:'$safeId'}}))", null
-                    )
+                val safeHost = hostId.replace("'", "\\'")
+                val safeName = projectName.replace("'", "\\'")
+                if (sidebarTrashMode) {
+                    dispatchJsEvent("native-unpin-project",
+                        """{"hostId":"$safeHost","projectName":"$safeName"}""")
+                } else {
+                    drawerLayout?.closeDrawer(Gravity.START)
+                    dispatchJsEvent("native-open-project",
+                        """{"hostId":"$safeHost","projectName":"$safeName"}""")
                 }
             }
         }
-
-        // Status dot
-        val dotSize = (8 * dp).toInt()
-        val dot = View(this).apply {
-            val circle = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(dotColor)
-            }
-            background = circle
-        }
-        val dotParams = LinearLayout.LayoutParams(dotSize, dotSize).apply {
-            marginEnd = (10 * dp).toInt()
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        row.addView(dot, dotParams)
-
         row.addView(TextView(this).apply {
-            text = label
-            textSize = 14f
-            setTextColor(if (isActive) Color.parseColor("#7aa2f7") else Color.parseColor("#c0caf5"))
-            if (isActive) setTypeface(null, Typeface.BOLD)
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-
-        parent.addView(row, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
+            text = "📌"; textSize = 13f
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply {
+                text = projectName; textSize = 14f
+                setTextColor(Color.parseColor("#c0caf5"))
+            })
+            if (hostLabel.isNotEmpty()) {
+                addView(TextView(this@MainActivity).apply {
+                    text = hostLabel; textSize = 11f
+                    setTextColor(Color.parseColor("#565f89"))
+                })
+            }
+        }
+        row.addView(textCol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        if (sidebarTrashMode) {
+            row.addView(TextView(this).apply { text = "✕"; textSize = 14f; setTextColor(Color.parseColor("#f7768e")) })
+        }
+        parent.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT))
     }
 
-    private fun addHostRow(parent: LinearLayout, label: String, reachable: Boolean, dp: Float) {
-        parent.addView(TextView(this).apply {
-            text = label
-            textSize = 13f
-            setTextColor(if (reachable) Color.parseColor("#9ece6a") else Color.parseColor("#a9b1d6"))
-            setPadding((20 * dp).toInt(), (5 * dp).toInt(), (8 * dp).toInt(), (5 * dp).toInt())
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
+    private fun addFavoriteSessionRow(
+        parent: LinearLayout, id: String, label: String, status: String, isActive: Boolean, dp: Float
+    ) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            if (isActive) setBackgroundColor(Color.parseColor("#1f2035"))
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                val safeId = id.replace("'", "\\'")
+                if (sidebarTrashMode) {
+                    dispatchJsEvent("native-delete-session", """{"id":"$safeId"}""")
+                } else {
+                    drawerLayout?.closeDrawer(Gravity.START)
+                    dispatchJsEvent("native-connect-session", """{"id":"$safeId"}""")
+                }
+            }
+        }
+        addStatusDot(row, statusDotColor(status), dp)
+        row.addView(TextView(this).apply {
+            text = label; textSize = 14f
+            setTextColor(if (isActive) Color.parseColor("#7aa2f7") else Color.parseColor("#c0caf5"))
+            if (isActive) setTypeface(null, Typeface.BOLD)
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        if (sidebarTrashMode) {
+            row.addView(TextView(this).apply { text = "✕"; textSize = 14f; setTextColor(Color.parseColor("#f7768e")) })
+        }
+        parent.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun addProjectHostRow(
+        parent: LinearLayout, hostId: String, label: String,
+        status: String, projects: JSONArray, dp: Float
+    ) {
+        val isExpanded = expandedHostIds.contains(hostId)
+        val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        val childContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (isExpanded) View.VISIBLE else View.GONE
+        }
+        for (i in 0 until projects.length()) {
+            val proj = projects.getJSONObject(i)
+            addProjectChildRow(childContainer, hostId, proj.getString("name"),
+                proj.optBoolean("pinned", false), dp)
+        }
+
+        val chevronView = TextView(this).apply {
+            text = if (isExpanded) "▼" else "▶"
+            textSize = 10f; setTextColor(Color.parseColor("#565f89"))
+        }
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((12 * dp).toInt(), (10 * dp).toInt(), (12 * dp).toInt(), (10 * dp).toInt())
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                if (sidebarTrashMode) {
+                    val safeId = hostId.replace("'", "\\'")
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Remove Host")
+                        .setMessage("Remove \"$label\"? Pinned projects from this host will be unpinned.")
+                        .setPositiveButton("Remove") { _, _ ->
+                            drawerLayout?.closeDrawer(Gravity.START)
+                            dispatchJsEvent("native-delete-host", """{"hostId":"$safeId"}""")
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                } else {
+                    if (expandedHostIds.contains(hostId)) {
+                        expandedHostIds.remove(hostId)
+                        childContainer.visibility = View.GONE
+                        chevronView.text = "▶"
+                    } else {
+                        expandedHostIds.add(hostId)
+                        childContainer.visibility = View.VISIBLE
+                        chevronView.text = "▼"
+                    }
+                }
+            }
+        }
+        headerRow.addView(chevronView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
+        addStatusDot(headerRow, statusDotColor(status), dp)
+        headerRow.addView(TextView(this).apply {
+            text = label; textSize = 14f; setTextColor(Color.parseColor("#a9b1d6"))
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        if (sidebarTrashMode) {
+            headerRow.addView(TextView(this).apply { text = "✕"; textSize = 14f; setTextColor(Color.parseColor("#f7768e")) })
+        }
+
+        container.addView(headerRow, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        container.addView(childContainer, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        parent.addView(container, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun addProjectChildRow(
+        parent: LinearLayout, hostId: String, projectName: String, pinned: Boolean, dp: Float
+    ) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((28 * dp).toInt(), (6 * dp).toInt(), (12 * dp).toInt(), (6 * dp).toInt())
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                val safeHost = hostId.replace("'", "\\'")
+                val safeName = projectName.replace("'", "\\'")
+                dispatchJsEvent("native-toggle-pin-project",
+                    """{"hostId":"$safeHost","projectName":"$safeName"}""")
+            }
+        }
+        row.addView(TextView(this).apply {
+            text = if (pinned) "📌" else "📎"; textSize = 13f
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
+        row.addView(TextView(this).apply {
+            text = projectName; textSize = 13f
+            setTextColor(if (pinned) Color.parseColor("#7aa2f7") else Color.parseColor("#a9b1d6"))
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        parent.addView(row, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun addSavedSessionRow(
+        parent: LinearLayout, id: String, label: String, status: String, dp: Float
+    ) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                val safeId = id.replace("'", "\\'")
+                if (sidebarTrashMode) {
+                    dispatchJsEvent("native-delete-session", """{"id":"$safeId"}""")
+                } else {
+                    drawerLayout?.closeDrawer(Gravity.START)
+                    dispatchJsEvent("native-connect-session", """{"id":"$safeId"}""")
+                }
+            }
+        }
+        addStatusDot(row, statusDotColor(status), dp)
+        row.addView(TextView(this).apply {
+            text = label; textSize = 14f; setTextColor(Color.parseColor("#a9b1d6"))
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        if (sidebarTrashMode) {
+            row.addView(TextView(this).apply { text = "✕"; textSize = 14f; setTextColor(Color.parseColor("#f7768e")) })
+        }
+        parent.addView(row, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
     }
 
     // ---------------------------------------------------------------------------

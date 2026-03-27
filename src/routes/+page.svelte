@@ -113,6 +113,26 @@
                 const visible = !!appState.activeSessionId && currentPaneIndex === 0;
                 (window as any).KeybarNative?.setVisible(visible);
             });
+            window.addEventListener('native-toggle-pin-project', (e) => {
+                const { hostId, projectName } = (e as CustomEvent<{hostId: string, projectName: string}>).detail;
+                appState.togglePinProject(hostId, projectName);
+            });
+            window.addEventListener('native-unpin-project', (e) => {
+                const { hostId, projectName } = (e as CustomEvent<{hostId: string, projectName: string}>).detail;
+                appState.unpinProject(hostId, projectName);
+            });
+            window.addEventListener('native-open-project', (e) => {
+                const { hostId, projectName } = (e as CustomEvent<{hostId: string, projectName: string}>).detail;
+                appState.openProjectByName(hostId, projectName);
+            });
+            window.addEventListener('native-delete-host', (e) => {
+                const { hostId } = (e as CustomEvent<{hostId: string}>).detail;
+                appState.removeHost(hostId);
+            });
+            window.addEventListener('native-delete-session', (e) => {
+                const { id } = (e as CustomEvent<{id: string}>).detail;
+                appState.removeSession(id);
+            });
         } else {
             window.addEventListener('kb-sidebar-toggle', () => { toggleSidebar(); });
             window.addEventListener('kb-go-to-tab', (e) => {
@@ -134,20 +154,33 @@
         };
     });
 
-    // Push session/host data to native sidebar whenever state changes.
+    // Push structured sidebar data to native Android sidebar whenever state changes.
     $effect(() => {
         if (!isLinux) {
+            const pinnedSet = new Set(
+                appState.pinnedProjects.map(p => `${p.hostId}:${p.projectName}`)
+            );
+            const connectedSessions = appState.sessions.filter(s => s.status === 'connected');
+            const savedSessions = appState.sessions.filter(s => s.status !== 'connected');
+
             const data = {
-                sessions: appState.sessions.map(s => ({
-                    id: s.id,
-                    label: s.label,
-                    status: s.status
-                })),
-                hosts: appState.hosts.map(h => ({
+                favorites: [
+                    ...appState.pinnedProjects.map(p => {
+                        const host = appState.hosts.find(h => h.id === p.hostId);
+                        return { type: 'project', hostId: p.hostId, projectName: p.projectName, hostLabel: host?.label ?? '' };
+                    }),
+                    ...connectedSessions.map(s => ({ type: 'session', id: s.id, label: s.label, status: s.status }))
+                ],
+                projectHosts: appState.hosts.map(h => ({
                     id: h.id,
                     label: h.label,
-                    reachable: h.reachable
+                    status: h.reachable ? 'connected' : (h.error ? 'error' : 'disconnected'),
+                    projects: h.projects.map(p => ({
+                        name: p.name ?? p.session_name,
+                        pinned: pinnedSet.has(`${h.id}:${p.name ?? p.session_name}`)
+                    }))
                 })),
+                savedSessions: savedSessions.map(s => ({ id: s.id, label: s.label, status: s.status })),
                 activeSessionId: appState.activeSessionId ?? ''
             };
             (window as any).SidebarNative?.updateData(JSON.stringify(data));
