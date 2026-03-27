@@ -4,6 +4,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -13,6 +15,7 @@ import android.util.Base64
 import android.util.Log
 import android.view.ActionMode
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
@@ -20,6 +23,7 @@ import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.content.ClipboardManager
@@ -30,9 +34,15 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.ViewCompat
+import androidx.drawerlayout.widget.DrawerLayout
+import org.json.JSONArray
+import org.json.JSONObject
 import javax.crypto.Cipher
 
 class MainActivity : TauriActivity() {
@@ -55,6 +65,10 @@ class MainActivity : TauriActivity() {
     private var baseFontSize = 38f  // physical pixels, matches CELL_HEIGHT default
     private var isPinching = false
 
+    // Native sidebar
+    private var drawerLayout: DrawerLayout? = null
+    private var sidebarSessionsList: LinearLayout? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         keyStoreManager = KeyStoreManager()
@@ -68,13 +82,18 @@ class MainActivity : TauriActivity() {
                 != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
-        
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                webViewRef?.evaluateJavascript(
-                    "window.dispatchEvent(new CustomEvent('kb-sidebar-toggle',{detail:{}}))",
-                    null
-                )
+                val dl = drawerLayout
+                if (dl != null && dl.isDrawerOpen(Gravity.START)) {
+                    dl.closeDrawer(Gravity.START)
+                } else {
+                    webViewRef?.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('kb-sidebar-toggle',{detail:{}}))",
+                        null
+                    )
+                }
             }
         })
 
@@ -106,11 +125,9 @@ class MainActivity : TauriActivity() {
                 velocityX: Float,
                 velocityY: Float
             ): Boolean {
-                // Left swipe (negative X velocity) → open sidebar
+                // Left swipe (negative X velocity) → open native DrawerLayout sidebar
                 if (velocityX < -600f && Math.abs(velocityX) > Math.abs(velocityY) * 1.5f) {
-                    webViewRef?.evaluateJavascript(
-                        "window.dispatchEvent(new CustomEvent('kb-sidebar-toggle',{detail:{}}))", null
-                    )
+                    drawerLayout?.openDrawer(Gravity.START)
                     return true
                 }
                 return false
@@ -187,10 +204,25 @@ class MainActivity : TauriActivity() {
             @android.webkit.JavascriptInterface
             fun setVisible(visible: Boolean) {
                 runOnUiThread {
-                    surfaceView?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.GONE
+                    surfaceView?.visibility = if (visible) View.VISIBLE else View.GONE
                 }
             }
         }, "TerminalNative")
+        // JS bridge for native sidebar data and actions.
+        webView.addJavascriptInterface(object : Any() {
+            @android.webkit.JavascriptInterface
+            fun updateData(json: String) {
+                updateNativeSidebarData(json)
+            }
+            @android.webkit.JavascriptInterface
+            fun openDrawer() {
+                runOnUiThread { drawerLayout?.openDrawer(Gravity.START) }
+            }
+            @android.webkit.JavascriptInterface
+            fun closeDrawer() {
+                runOnUiThread { drawerLayout?.closeDrawer(Gravity.START) }
+            }
+        }, "SidebarNative")
         // Make the WebView transparent so the wgpu SurfaceView terminal shows through.
         webView.setBackgroundColor(Color.TRANSPARENT)
         webView.isFocusableInTouchMode = true
@@ -203,16 +235,49 @@ class MainActivity : TauriActivity() {
     private fun setupNativeSurface(webView: WebView) {
         val parent = webView.parent as? ViewGroup ?: return
         val index = parent.indexOfChild(webView)
-        
-        val container = FrameLayout(this)
-        container.layoutParams = webView.layoutParams
 
-        // Add the container to the parent BEFORE populating it, so the layout system
-        // resolves the container to its true screen dimensions. If we add the SurfaceView
-        // first, surfaceChanged fires with the WebView's pre-inset size (2048px) instead
-        // of the real height (~2349px), corrupting the initial wgpu surface configuration.
+        // DrawerLayout wraps everything: main content + left sidebar panel.
+        val dl = DrawerLayout(this)
+        dl.layoutParams = webView.layoutParams
+
+        // Main content container: WebView + SurfaceView + hidden EditText stacked.
+        val container = FrameLayout(this)
+        container.layoutParams = DrawerLayout.LayoutParams(
+            DrawerLayout.LayoutParams.MATCH_PARENT,
+            DrawerLayout.LayoutParams.MATCH_PARENT
+        )
+
+        // Insert the DrawerLayout into the parent at the WebView's old position.
         parent.removeView(webView)
-        parent.addView(container, index)
+        parent.addView(dl, index)
+        dl.addView(container)
+
+        // Build and attach the native sidebar panel.
+        val sidebarPanel = createSidebarPanel()
+        dl.addView(sidebarPanel)
+        drawerLayout = dl
+
+        // Drawer listener: hide keyboard + keybar when drawer opens.
+        dl.addDrawerListener(object : DrawerLayout.DrawerListener {
+            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
+            override fun onDrawerOpened(drawerView: View) {
+                val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                hiddenEditText?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
+                webViewRef?.post {
+                    webViewRef?.evaluateJavascript(
+                        "(window.KeybarNative?.setVisible(false), void 0)", null
+                    )
+                }
+            }
+            override fun onDrawerClosed(drawerView: View) {
+                webViewRef?.post {
+                    webViewRef?.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('native-drawer-closed'))", null
+                    )
+                }
+            }
+            override fun onDrawerStateChanged(newState: Int) {}
+        })
 
         surfaceView = SurfaceView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -220,12 +285,9 @@ class MainActivity : TauriActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             // Start hidden — JS controls visibility via TerminalNative.setVisible().
-            // Without this the SurfaceView covers the entire WebView immediately on
-            // startup (before the Svelte $effect fires), blocking the welcome screen.
-            visibility = android.view.View.GONE
+            visibility = View.GONE
             // Lift the SurfaceView above the Window layer so it composites on top
-            // of the WebView rather than relying on the punch-through mechanism,
-            // which silently fails in hardware-accelerated Tauri view hierarchies.
+            // of the WebView rather than relying on the punch-through mechanism.
             setZOrderMediaOverlay(true)
             setOnTouchListener { _, event ->
                 scaleDetector.onTouchEvent(event)
@@ -269,23 +331,16 @@ class MainActivity : TauriActivity() {
                 }
             })
         }
-        
+
         val fillParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         )
-        // WebView must be added FIRST so the SurfaceView (added second) is
-        // last in the FrameLayout child list. Android dispatches touch events
-        // to the last-added child first, so the SurfaceView intercepts touches
-        // when VISIBLE. When GONE (no active session) it is excluded from
-        // dispatch automatically and all touches reach the WebView as normal.
-        // NOTE: setZOrderMediaOverlay(true) controls rendering z-order
-        // independently of the view-hierarchy order used for touch dispatch.
+        // WebView first → SurfaceView second (last-added child gets touches first).
         container.addView(webView, FrameLayout.LayoutParams(fillParams))
         container.addView(surfaceView, fillParams)
 
-        // Hidden 1×1 EditText positioned off-screen — provides a real InputConnection
-        // so the system keyboard reliably shows and delivers text to the terminal.
+        // Hidden 1×1 EditText for keyboard input.
         val imeIgnore = booleanArrayOf(false)
         hiddenEditText = EditText(this).apply {
             layoutParams = FrameLayout.LayoutParams(1, 1)
@@ -296,7 +351,6 @@ class MainActivity : TauriActivity() {
             inputType = InputType.TYPE_CLASS_TEXT or
                         InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
                         InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            // IME_ACTION_NONE: Enter key inserts newline instead of dismissing the keyboard.
             imeOptions = EditorInfo.IME_ACTION_NONE or
                          EditorInfo.IME_FLAG_NO_FULLSCREEN or
                          EditorInfo.IME_FLAG_NO_EXTRACT_UI
@@ -314,12 +368,12 @@ class MainActivity : TauriActivity() {
                         val seq = when {
                             ctrl && ch.isLetter() ->
                                 (ch.lowercaseChar().code and 0x1f).toChar().toString()
-                            ctrl && ch == '[' -> "\u001b"   // Ctrl+[ = ESC
+                            ctrl && ch == '[' -> "\u001b"
                             ctrl && ch == '\\' -> "\u001c"
                             ctrl && ch == ']' -> "\u001d"
                             ctrl && ch == '^' -> "\u001e"
                             ctrl && ch == '_' -> "\u001f"
-                            ctrl && ch == '@' -> "\u0000"   // Ctrl+@ = NUL
+                            ctrl && ch == '@' -> "\u0000"
                             alt -> "\u001b${ch}"
                             ch == '\n' -> "\r"
                             else -> ch.toString()
@@ -339,7 +393,7 @@ class MainActivity : TauriActivity() {
                     val ctrl = plugin?.modCtrl == true
                     val alt  = plugin?.modAlt  == true
                     val meta = plugin?.modMeta == true
-                    
+
                     var seq = when (keyCode) {
                         KeyEvent.KEYCODE_DEL         -> "\u007f"
                         KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3~"
@@ -352,11 +406,10 @@ class MainActivity : TauriActivity() {
                         KeyEvent.KEYCODE_DPAD_LEFT   -> KeybarSeqs.modifiedArrow("D", ctrl, alt, meta)
                         else -> null
                     }
-                    
-                    // Handle modified Enter/Tab/Esc if needed, though usually just raw.
+
                     if (seq != null && (ctrl || alt || meta)) {
                         if (keyCode == KeyEvent.KEYCODE_ENTER) {
-                            if (ctrl) seq = "\n" // Ctrl+Enter often LF
+                            if (ctrl) seq = "\n"
                             if (alt)  seq = "\u001b\r"
                         }
                     }
@@ -373,13 +426,6 @@ class MainActivity : TauriActivity() {
         }
         container.addView(hiddenEditText)
 
-        // Exclude the full SurfaceView from Android's system gesture navigation so that
-        // left-swipe-from-right-edge is handled by our GestureDetector (opens sidebar)
-        // rather than triggering the OS back gesture.
-        // Keep this listener registered (no removeOnGlobalLayoutListener) so it also fires
-        // on subsequent layout changes — e.g. keyboard show/hide — to keep the renderer sized
-        // correctly. surfaceChanged reports a pre-inset size (2048px) on first fire, so we use
-        // onGlobalLayout (which fires after insets settle) as the authoritative resize source.
         surfaceView?.viewTreeObserver?.addOnGlobalLayoutListener {
             val sv = surfaceView ?: return@addOnGlobalLayoutListener
             val w = sv.width; val h = sv.height
@@ -393,53 +439,238 @@ class MainActivity : TauriActivity() {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 passSurfaceToRust(holder.surface)
             }
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                // No-op: sizing is driven by onGlobalLayout above, not surfaceChanged,
-                // because surfaceChanged fires with a stale pre-inset height on first call.
-            }
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 passSurfaceDestroyedToRust()
             }
         })
     }
 
-    private fun copyFontsFromAssets() {
-        val fontsDir = java.io.File(filesDir, "fonts")
-        if (!fontsDir.exists()) fontsDir.mkdirs()
-        val fonts = listOf(
-            "NotoSansMNerdFontMono-Regular.ttf",
-            "NotoSansMNerdFontMono-Bold.ttf"
-        )
-        for (name in fonts) {
-            val dest = java.io.File(fontsDir, name)
-            if (!dest.exists()) {
-                try {
-                    assets.open("fonts/$name").use { input ->
-                        dest.outputStream().use { output -> input.copyTo(output) }
+    // ---------------------------------------------------------------------------
+    // Native sidebar panel
+    // ---------------------------------------------------------------------------
+
+    private fun createSidebarPanel(): LinearLayout {
+        val dp = resources.displayMetrics.density
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#13141e"))
+            val widthPx = (300 * dp).toInt()
+            val params = DrawerLayout.LayoutParams(widthPx, DrawerLayout.LayoutParams.MATCH_PARENT)
+            params.gravity = Gravity.START
+            layoutParams = params
+        }
+
+        // Header
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#0d0e17"))
+            val pad = (16 * dp).toInt()
+            setPadding(pad, pad, pad, pad)
+            minimumHeight = (56 * dp).toInt()
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(TextView(this).apply {
+            text = "zelland"
+            setTextColor(Color.parseColor("#7aa2f7"))
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+        })
+        panel.addView(header, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        addDivider(panel, dp)
+
+        // Scrollable sessions/hosts list
+        val scrollView = ScrollView(this)
+        sidebarSessionsList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (8 * dp).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        scrollView.addView(sidebarSessionsList)
+        panel.addView(scrollView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
+
+        addDivider(panel, dp)
+
+        // Footer: 4 action buttons
+        val footer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#0d0e17"))
+            val hPad = (4 * dp).toInt()
+            val vPad = (8 * dp).toInt()
+            setPadding(hPad, vPad, hPad, vPad)
+            weightSum = 4f
+        }
+
+        fun footerBtn(label: String, eventName: String): TextView {
+            return TextView(this).apply {
+                text = label
+                setTextColor(Color.parseColor("#a9b1d6"))
+                textSize = 11f
+                gravity = Gravity.CENTER
+                val pad = (6 * dp).toInt()
+                setPadding(pad, (10 * dp).toInt(), pad, (10 * dp).toInt())
+                setOnClickListener {
+                    drawerLayout?.closeDrawer(Gravity.START)
+                    webViewRef?.post {
+                        webViewRef?.evaluateJavascript(
+                            "window.dispatchEvent(new CustomEvent('$eventName'))", null
+                        )
                     }
-                    Log.d("MainActivity", "Copied font: $name")
-                } catch (e: Exception) {
-                    Log.e("MainActivity", "Failed to copy font $name: ${e.message}")
                 }
             }
         }
+
+        val btnParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        footer.addView(footerBtn("↺\nRestart", "native-reload-terminal"), btnParams)
+        footer.addView(footerBtn("+\nHost",    "native-add-host"),         LinearLayout.LayoutParams(btnParams))
+        footer.addView(footerBtn("+\nSession", "native-add-session"),      LinearLayout.LayoutParams(btnParams))
+        footer.addView(footerBtn("⚙\nSettings","native-settings"),         LinearLayout.LayoutParams(btnParams))
+
+        panel.addView(footer, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        return panel
     }
 
-    private fun String.toJsStr(): String {
-        val sb = StringBuilder("\"")
-        for (c in this) {
-            when (c) {
-                '"'  -> sb.append("\\\"")
-                '\\' -> sb.append("\\\\")
-                '\n' -> sb.append("\\n")
-                '\r' -> sb.append("\\r")
-                '\t' -> sb.append("\\t")
-                else -> if (c.code < 0x20) sb.append("\\u%04x".format(c.code)) else sb.append(c)
+    private fun addDivider(parent: LinearLayout, dp: Float) {
+        parent.addView(View(this).apply {
+            setBackgroundColor(Color.parseColor("#292e42"))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()))
+    }
+
+    /** Called from JS via SidebarNative.updateData(json). May be called off the UI thread. */
+    internal fun updateNativeSidebarData(json: String) {
+        val dp = resources.displayMetrics.density
+        try {
+            val obj = JSONObject(json)
+            val sessions = obj.optJSONArray("sessions") ?: JSONArray()
+            val hosts    = obj.optJSONArray("hosts")    ?: JSONArray()
+            val activeId = obj.optString("activeSessionId", "")
+
+            runOnUiThread {
+                val list = sidebarSessionsList ?: return@runOnUiThread
+                list.removeAllViews()
+
+                if (sessions.length() > 0) {
+                    addSectionLabel(list, "SESSIONS", dp)
+                    for (i in 0 until sessions.length()) {
+                        val s = sessions.getJSONObject(i)
+                        addSessionRow(list, s.getString("id"), s.getString("label"),
+                            s.optString("status", "idle"), s.getString("id") == activeId, dp)
+                    }
+                }
+
+                if (hosts.length() > 0) {
+                    addSectionLabel(list, "HOSTS", dp)
+                    for (i in 0 until hosts.length()) {
+                        val h = hosts.getJSONObject(i)
+                        addHostRow(list, h.getString("label"), h.optBoolean("reachable", false), dp)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "updateNativeSidebarData error: ${e.message}")
+        }
+    }
+
+    private fun addSectionLabel(parent: LinearLayout, text: String, dp: Float) {
+        parent.addView(TextView(this).apply {
+            this.text = text
+            textSize = 10f
+            setTextColor(Color.parseColor("#565f89"))
+            letterSpacing = 0.1f
+            setPadding((8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt(), (4 * dp).toInt())
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+    }
+
+    private fun addSessionRow(
+        parent: LinearLayout, id: String, label: String,
+        status: String, isActive: Boolean, dp: Float
+    ) {
+        val dotColor = when (status) {
+            "connected"  -> Color.parseColor("#9ece6a")
+            "connecting" -> Color.parseColor("#e0af68")
+            "error"      -> Color.parseColor("#f7768e")
+            else         -> Color.parseColor("#565f89")
+        }
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val hPad = (12 * dp).toInt(); val vPad = (8 * dp).toInt()
+            setPadding(hPad, vPad, hPad, vPad)
+            if (isActive) setBackgroundColor(Color.parseColor("#1f2035"))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                drawerLayout?.closeDrawer(Gravity.START)
+                val safeId = id.replace("\\", "\\\\").replace("'", "\\'")
+                webViewRef?.post {
+                    webViewRef?.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('native-connect-session',{detail:{id:'$safeId'}}))", null
+                    )
+                }
             }
         }
-        sb.append('"')
-        return sb.toString()
+
+        // Status dot
+        val dotSize = (8 * dp).toInt()
+        val dot = View(this).apply {
+            val circle = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(dotColor)
+            }
+            background = circle
+        }
+        val dotParams = LinearLayout.LayoutParams(dotSize, dotSize).apply {
+            marginEnd = (10 * dp).toInt()
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        row.addView(dot, dotParams)
+
+        row.addView(TextView(this).apply {
+            text = label
+            textSize = 14f
+            setTextColor(if (isActive) Color.parseColor("#7aa2f7") else Color.parseColor("#c0caf5"))
+            if (isActive) setTypeface(null, Typeface.BOLD)
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        parent.addView(row, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
     }
+
+    private fun addHostRow(parent: LinearLayout, label: String, reachable: Boolean, dp: Float) {
+        parent.addView(TextView(this).apply {
+            text = label
+            textSize = 13f
+            setTextColor(if (reachable) Color.parseColor("#9ece6a") else Color.parseColor("#a9b1d6"))
+            setPadding((20 * dp).toInt(), (5 * dp).toInt(), (8 * dp).toInt(), (5 * dp).toInt())
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+    }
+
+    // ---------------------------------------------------------------------------
+    // Selection & copy/paste
+    // ---------------------------------------------------------------------------
 
     private fun pixelToCell(x: Float, y: Float): Pair<Int, Int> {
         val dims = getCellDimensions()
@@ -486,10 +717,55 @@ class MainActivity : TauriActivity() {
         if (clip.itemCount == 0) return
         val text = clip.getItemAt(0).coerceToText(this).toString()
         if (text.isEmpty()) return
-        // Use bracketed paste mode so zellij/shell handles the paste safely
         val bracketed = "\u001b[200~$text\u001b[201~"
         passPasteToRust(bracketed.toByteArray(Charsets.UTF_8))
     }
+
+    // ---------------------------------------------------------------------------
+    // Utilities
+    // ---------------------------------------------------------------------------
+
+    private fun copyFontsFromAssets() {
+        val fontsDir = java.io.File(filesDir, "fonts")
+        if (!fontsDir.exists()) fontsDir.mkdirs()
+        val fonts = listOf(
+            "NotoSansMNerdFontMono-Regular.ttf",
+            "NotoSansMNerdFontMono-Bold.ttf"
+        )
+        for (name in fonts) {
+            val dest = java.io.File(fontsDir, name)
+            if (!dest.exists()) {
+                try {
+                    assets.open("fonts/$name").use { input ->
+                        dest.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    Log.d("MainActivity", "Copied font: $name")
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Failed to copy font $name: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun String.toJsStr(): String {
+        val sb = StringBuilder("\"")
+        for (c in this) {
+            when (c) {
+                '"'  -> sb.append("\\\"")
+                '\\' -> sb.append("\\\\")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                else -> if (c.code < 0x20) sb.append("\\u%04x".format(c.code)) else sb.append(c)
+            }
+        }
+        sb.append('"')
+        return sb.toString()
+    }
+
+    // ---------------------------------------------------------------------------
+    // JNI declarations
+    // ---------------------------------------------------------------------------
 
     private external fun passSurfaceToRust(surface: Surface)
     private external fun passResizeToRust(width: Int, height: Int)
@@ -500,6 +776,10 @@ class MainActivity : TauriActivity() {
     private external fun passPasteToRust(data: ByteArray)
     private external fun getCellDimensions(): FloatArray
     private external fun updateFontSizeToRust(physicalPx: Float)
+
+    // ---------------------------------------------------------------------------
+    // Biometric / KeyStore
+    // ---------------------------------------------------------------------------
 
     fun generateBiometricKey(alias: String): Boolean {
         return try {
