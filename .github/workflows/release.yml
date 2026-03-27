@@ -22,8 +22,6 @@ jobs:
             runner: ubuntu-latest
             linker: aarch64-linux-gnu-gcc
             packages: gcc-aarch64-linux-gnu
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
           - target: aarch64-apple-darwin
             runner: macos-latest
 
