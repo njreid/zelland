@@ -231,7 +231,9 @@
     });
 
     $effect(() => {
-        (window as any).TerminalNative?.setVisible(currentPaneIndex === 0 && !!appState.activeSessionId);
+        (window as any).TerminalNative?.setVisible(
+            currentPaneIndex === 0 && !!appState.activeSessionId && androidModal === null
+        );
     });
 </script>
 

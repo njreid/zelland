@@ -152,7 +152,10 @@ fn parse_remote_platform(output: &str) -> Result<RemotePlatform, String> {
         ("Linux", "aarch64") | ("Linux", "arm64") => Ok(RemotePlatform::LinuxAarch64),
         ("Darwin", "x86_64") => Ok(RemotePlatform::MacosX86_64),
         ("Darwin", "arm64") | ("Darwin", "aarch64") => Ok(RemotePlatform::MacosAarch64),
-        _ => Err(format!("Unsupported remote platform: {os} {arch}")),
+        _ => Err(format!(
+            "Unsupported remote platform: {os} {arch} \
+             (supported: Linux x86_64/aarch64, Darwin x86_64/arm64)"
+        )),
     }
 }
 
@@ -193,7 +196,10 @@ async fn wait_for_helper(url: &str) -> Result<(), String> {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    Err(format!("Remote helper did not become healthy at {url}"))
+    Err(format!(
+        "Remote helper did not become healthy at {url} after 10 s — \
+         check ~/.local/state/zelland/zlnd.log on the remote host"
+    ))
 }
 
 async fn load_helper_binary(platform: RemotePlatform) -> Result<Vec<u8>, String> {
@@ -224,7 +230,8 @@ async fn load_helper_binary(platform: RemotePlatform) -> Result<Vec<u8>, String>
         .map_err(|e| format!("Failed to download helper from {url}: {}", e))?;
     if !response.status().is_success() {
         return Err(format!(
-            "Failed to download helper asset {}: {}",
+            "Failed to download helper binary {} (HTTP {}): \
+             ensure release v{HELPER_VERSION} exists at {url}",
             platform.artifact_name(),
             response.status()
         ));

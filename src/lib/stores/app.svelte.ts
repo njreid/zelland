@@ -23,6 +23,7 @@ export interface Host {
     private_key_path?: string;
     reachable: boolean;
     error?: string;
+    helperError?: string;
     projects: Project[];
 }
 
@@ -242,9 +243,21 @@ function createAppState() {
         const host = hosts.find(h => h.id === hostId);
         if (!host) return;
 
+        log(`Fetching projects for ${host.label}...`);
+
+        // Helper bootstrap is best-effort — a failure here doesn't block project fetch in
+        // case the daemon was already running from a previous connection.
         try {
-            log(`Fetching projects for ${host.label}...`);
             await ensureHostHelper(host);
+            host.helperError = undefined;
+        } catch (e) {
+            const err = String(e);
+            console.warn(`Helper unavailable for ${host.label}:`, e);
+            host.helperError = err;
+            log(`Helper unavailable for ${host.label}: ${err}`, 'error');
+        }
+
+        try {
             const projects = await invoke<any[]>("daemon_get_projects", { url: `http://${host.address}:8083` });
             host.projects = projects.map(p => ({ ...p, hostId: host.id }));
             host.reachable = true;
@@ -254,7 +267,7 @@ function createAppState() {
             const err = String(e);
             console.error(`Failed to fetch projects for host ${host.label}:`, e);
             host.reachable = false;
-            host.error = err;
+            host.error = host.helperError ? `Helper: ${host.helperError}` : err;
             log(`Failed to fetch projects for ${host.label}: ${err}`, 'error');
         }
     }
@@ -498,7 +511,9 @@ function createAppState() {
                     await invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` });
                     daemonConnected = true;
                 } catch (e) {
+                    const err = String(e);
                     console.warn("Failed to bootstrap remote helper:", e);
+                    log(`Helper unavailable for this session: ${err}`, 'error');
                     daemonConnected = false;
                 }
             })();
