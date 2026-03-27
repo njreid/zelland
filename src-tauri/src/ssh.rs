@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use russh::*;
 use russh::client::AuthResult;
+use std::borrow::Cow;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 use std::collections::HashMap;
@@ -178,6 +179,58 @@ impl SshManager {
         Ok(String::from_utf8_lossy(&output).to_string())
     }
 
+    pub async fn upload_file(
+        &self,
+        config: SshConfig,
+        remote_path: &str,
+        contents: &[u8],
+        key_manager: Arc<dyn KeyManager>,
+    ) -> Result<(), String> {
+        debug!(
+            "Uploading {} bytes to {}:{}:{}",
+            contents.len(),
+            config.host,
+            config.port,
+            remote_path
+        );
+        let session = open_session(&config, key_manager).await?;
+
+        let mut channel = session
+            .channel_open_session()
+            .await
+            .map_err(|e| format!("Failed to open channel: {}", e))?;
+
+        let cmd = format!("cat > {}", shell_quote(remote_path));
+        channel
+            .exec(true, cmd)
+            .await
+            .map_err(|e| format!("Failed to start upload command: {}", e))?;
+
+        for chunk in contents.chunks(32 * 1024) {
+            channel
+                .data(chunk)
+                .await
+                .map_err(|e| format!("Failed to upload chunk: {}", e))?;
+        }
+
+        channel
+            .eof()
+            .await
+            .map_err(|e| format!("Failed to finish upload: {}", e))?;
+
+        while let Some(msg) = channel.wait().await {
+            match msg {
+                russh::ChannelMsg::ExitStatus { exit_status } if exit_status != 0 => {
+                    return Err(format!("Remote upload command failed with status {}", exit_status));
+                }
+                russh::ChannelMsg::ExitStatus { .. } | russh::ChannelMsg::Eof => break,
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn connect(
         &self,
         tab_id: String,
@@ -223,7 +276,13 @@ impl SshManager {
         tokio::spawn(async move {
             info!("SSH session loop started for tab {}", tab_id_spawn);
 
-            let mut ts = TerminalSession::new(cols, rows);
+            let mut ts = match TerminalSession::new(cols, rows) {
+                Ok(ts) => ts,
+                Err(e) => {
+                    error!("Failed to create terminal session for tab {}: {}", tab_id_spawn, e);
+                    return;
+                }
+            };
             let mut bytes_received: u64 = 0;
             info!("SSH session loop ready for tab {}", tab_id_spawn);
 
@@ -348,6 +407,15 @@ impl SshManager {
         };
         self.send_to_session(&tab_id, SessionMsg::ProcessMouse { x, y, action }).await
     }
+}
+
+fn shell_quote(input: &str) -> Cow<'_, str> {
+    if !input.contains('"') && !input.contains(' ') && !input.contains('\'') {
+        return Cow::Borrowed(input);
+    }
+
+    let escaped = input.replace('\'', r#"'\''"#);
+    Cow::Owned(format!("'{}'", escaped))
 }
 
 #[cfg(test)]

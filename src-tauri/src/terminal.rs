@@ -8,16 +8,16 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
-    pub fn new(cols: u16, rows: u16) -> Self {
-        let term =
-            GhosttyTerminalWrapper::new(cols, rows).expect("Failed to create Ghostty terminal");
-        let render_state =
-            GhosttyRenderStateWrapper::new().expect("Failed to create Ghostty render state");
-        Self {
+    pub fn new(cols: u16, rows: u16) -> Result<Self, String> {
+        let term = GhosttyTerminalWrapper::new(cols, rows)
+            .map_err(|e| format!("Failed to create Ghostty terminal: {}", e))?;
+        let render_state = GhosttyRenderStateWrapper::new()
+            .map_err(|e| format!("Failed to create Ghostty render state: {}", e))?;
+        Ok(Self {
             term,
             render_state,
             dirty: true,
-        }
+        })
     }
 
     pub fn process_bytes(&mut self, data: &[u8]) {
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_terminal_session_processes_data() {
-        let mut ts = TerminalSession::new(80, 24);
+        let mut ts = TerminalSession::new(80, 24).unwrap();
         assert!(ts.is_dirty(), "new session should be dirty");
         ts.process_bytes(b"hello");
         assert!(ts.is_dirty(), "should be dirty after process_bytes");
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_terminal_session_render_native_without_renderer() {
-        let mut ts = TerminalSession::new(80, 24);
+        let mut ts = TerminalSession::new(80, 24).unwrap();
         ts.process_bytes(b"test");
         // render_native must not panic when no renderer surface exists
         assert!(ts.render_native().is_ok());
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_encode_mouse_event_uses_sgr_sequences_when_enabled() {
-        let ts = TerminalSession::new(80, 24);
+        let ts = TerminalSession::new(80, 24).unwrap();
         ts.term.write(b"\x1b[?1000h\x1b[?1006h");
 
         let encoded = ts
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_encode_mouse_event_supports_right_click() {
-        let ts = TerminalSession::new(80, 24);
+        let ts = TerminalSession::new(80, 24).unwrap();
         ts.term.write(b"\x1b[?1000h\x1b[?1006h");
 
         let encoded = ts

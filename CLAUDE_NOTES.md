@@ -41,32 +41,25 @@ The comment now reads `// Zero-scrollback design: no local buffer to scroll.`
 
 ---
 
-## 3. Panics Instead of Recoverable Errors
+## 3. Panics Instead of Recoverable Errors ✅ Resolved
 
-Several paths panic on failure that should instead propagate errors gracefully:
+All hot-path panics have been replaced with graceful error handling:
 
-| Location | Call | Risk |
-|---|---|---|
-| `terminal.rs:TerminalSession::new` | `.expect("Failed to create Ghostty terminal")` | Panics on OOM or bad cols/rows |
-| `terminal.rs:render_native` | `.expect("Failed to update render state")` | Panics on every dirty frame if Ghostty is in a bad state |
-| `renderer/mod.rs:render` | `.expect("Failed to acquire next swap chain texture")` | Panics on device loss / surface lost |
-| `renderer/mod.rs:Renderer::init` | two `.expect()` on adapter/device | Panics if Vulkan adapter unavailable |
-
-For a Tauri app, panics in a `tokio::spawn` will silently kill that task (and the SSH session with it).
-`render_native` should return `Result<(), RendererError>` and the caller in `ssh.rs` should log + continue.
+| Location | Fix |
+|---|---|
+| `terminal.rs:TerminalSession::new` | Now returns `Result<Self, String>`; caller in `ssh.rs` logs error and returns from the task |
+| `terminal.rs:render_native` | Returns `Result<(), String>`; already fixed |
+| `renderer/mod.rs:render` | Logs error and returns early on surface texture failure |
+| `renderer/mod.rs:Renderer::init` | Logs error and returns early on adapter/device failure |
 
 ---
 
-## 4. Renderer: Text-Only, Styling Completely Absent
+## 4. Renderer: Text-Only, Styling Completely Absent ✅ Resolved
 
-`draw_ghostty_state` in `renderer/mod.rs` collects grapheme codepoints per cell but **ignores all style data**.
-`ghostty.rs` exposes `get_cell_style()` (fg/bg/bold/italic/reverse/underline) and `get_cell_raw()` but
-neither is ever called from the renderer.
-
-The result is a flat monochrome terminal — no colors, no bold, no cursor highlight.
-
-**Fix (priority):** During the cell loop, call `get_cell_style()` and build `glyphon::Attrs` with the correct
-fg color and weight. A basic 16-ANSI-color map is sufficient for MVP.
+`build_row_runs` in `renderer/mod.rs` calls `get_cell_style()` per cell and extracts `fg_color`,
+`bold`, `italic`, and `inverse` flags. Colors flow through `ghostty_color_to_rgb` (handles palette
+indices and RGB values) into `CellRun.fg`. `draw_ghostty_state` passes `fg/bold/italic` to glyphon
+`Attrs` via `set_rich_text`. A 16-color ANSI palette is mapped in `ansi_palette_color()`.
 
 ---
 
@@ -209,8 +202,8 @@ releases and recreates the wgpu surface accordingly.
 |---|---|---|---|---|
 | 1 | ⚠️ Open | Medium | terminal.rs | Dead `render_viewport` + `render_buf` |
 | 2 | ✅ Done | Low | terminal.rs, ssh.rs | Stale Phase 1 / Zellij comments |
-| 3 | ⚠️ Open | High | terminal.rs, renderer/ | `.expect()` panics in hot paths |
-| 4 | ⚠️ Open | High | renderer/mod.rs | Cell styles/colors completely ignored |
+| 3 | ✅ Done | High | terminal.rs, renderer/ | `.expect()` panics in hot paths |
+| 4 | ✅ Done | High | renderer/mod.rs | Cell styles/colors completely ignored |
 | 5 | ⚠️ Open | Medium | renderer/mod.rs | `row_cache` never shrinks on resize |
 | 6 | ⚠️ Open | Low | terminal.rs | Per-event mouse encoder allocation |
 | 7 | ⚠️ Open | Medium | renderer/ | Global singleton + silent frame drops |
