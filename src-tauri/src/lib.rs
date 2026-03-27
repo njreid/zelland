@@ -3,6 +3,7 @@ pub mod terminal;
 pub mod ghostty;
 pub mod renderer;
 pub mod daemon;
+pub mod helper;
 pub mod intent;
 pub mod keybar;
 pub mod network;
@@ -228,6 +229,7 @@ pub fn run() {
             ssh_resize,
             ssh_scroll,
             run_remote_command,
+            helper::ensure_remote_helper,
             daemon_connect,
             daemon_run_zellij_action,
             daemon::daemon_get_projects,

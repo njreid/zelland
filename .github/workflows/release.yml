@@ -1,4 +1,4 @@
-name: Create release
+name: Release helper artifacts
 
 on:
   push:
@@ -9,16 +9,89 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Release pushed tag
-    runs-on: ubuntu-latest
+  build-helper:
+    name: Build ${{ matrix.target }} helper
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            linker: aarch64-linux-gnu-gcc
+            packages: gcc-aarch64-linux-gnu
+          - target: x86_64-apple-darwin
+            runner: macos-13
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+
     steps:
-      - name: Create release
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux cross toolchain
+        if: ${{ matrix.packages != '' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.packages }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: daemon-rs
+
+      - name: Build helper binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+        run: cargo build --manifest-path daemon-rs/Cargo.toml --release --bin zlnd --target ${{ matrix.target }}
+
+      - name: Stage helper artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "daemon-rs/target/${{ matrix.target }}/release/zlnd" "dist/zlnd-${{ matrix.target }}"
+          chmod +x "dist/zlnd-${{ matrix.target }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zlnd-${{ matrix.target }}
+          path: dist/zlnd-${{ matrix.target }}
+
+  release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs: build-helper
+
+    steps:
+      - name: Download helper artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create or update release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.ref_name }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$tag" \
-              --repo="$GITHUB_REPOSITORY" \
-              --title="${tag#v}" \
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "${TAG#v}" \
               --generate-notes
+
+      - name: Upload helper assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          for artifact in dist/*/*; do
+            gh release upload "$TAG" "$artifact" --repo "$GITHUB_REPOSITORY" --clobber
+          done

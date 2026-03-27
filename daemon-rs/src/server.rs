@@ -43,6 +43,7 @@ pub fn build_router(state: AppState) -> Router {
             post(handlers::projects::activate_project),
         )
         .route("/api/v1/projects/{id}/files", get(handlers::projects::list_project_files))
+        .route("/api/v1/meta/version", get(handlers::meta::get_version))
         .route("/api/v1/fs/read", get(handlers::fs::read_file))
         .route("/api/v1/fs/annotate", post(handlers::fs::annotate_file))
         .route(
@@ -205,6 +206,28 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_version_endpoint() {
+        let state = test_state();
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/meta/version")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["name"], "zlnd");
+        assert_eq!(payload["version"], env!("CARGO_PKG_VERSION"));
     }
 
     #[tokio::test]

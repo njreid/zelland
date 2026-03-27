@@ -141,3 +141,10 @@ testing is needed.
 10. Pinch → font size changes
 11. Lock screen → unlock → terminal reconnects (or session resumes via foreground service)
 12. Swipe right → markdown pane loads (if project active)
+
+---
+
+## 8. Per-User Helper Bootstrap
+
+- Rust coverage should include helper platform detection, version parsing, artifact naming, and the SSH command used to start new zellij sessions in the project root.
+- Manual coverage should verify project discovery on a host before any saved session exists, automatic install to `~/bin/zlnd`, `nohup` restart behavior, and correct initial cwd for newly created project sessions.

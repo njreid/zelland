@@ -64,6 +64,7 @@ pub struct SshConfig {
     pub private_key_passphrase: Option<String>,
     pub key_id: Option<String>,
     pub session_name: String,
+    pub project_root: Option<String>,
 }
 
 pub enum SessionMsg {
@@ -261,7 +262,7 @@ impl SshManager {
                 format!("Failed to request PTY: {}", e)
             })?;
 
-        let robust_cmd = format!("zellij attach --create {} || $SHELL", config.session_name);
+        let robust_cmd = build_zellij_connect_command(&config);
         debug!("Executing SSH shell command: {}", robust_cmd);
 
         channel.exec(true, robust_cmd).await
@@ -418,6 +419,19 @@ fn shell_quote(input: &str) -> Cow<'_, str> {
     Cow::Owned(format!("'{}'", escaped))
 }
 
+fn build_zellij_connect_command(config: &SshConfig) -> String {
+    let session = shell_quote(&config.session_name);
+    match config.project_root.as_deref() {
+        Some(root) if !root.trim().is_empty() => {
+            let root = shell_quote(root.trim());
+            format!(
+                "if zellij list-sessions -n -q | grep -Fx -- {session} >/dev/null 2>&1; then zellij attach {session}; else cd {root} && zellij attach --create {session}; fi || $SHELL"
+            )
+        }
+        _ => format!("zellij attach --create {session} || $SHELL"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,5 +454,46 @@ mod tests {
         let msg = SshChannelMsg::Closed;
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"Closed\""));
+    }
+
+    #[test]
+    fn test_build_zellij_connect_command_uses_project_root_for_new_sessions() {
+        let config = SshConfig {
+            host: "host".into(),
+            port: 22,
+            username: "user".into(),
+            auth_method: AuthMethod::Password,
+            password: Some("secret".into()),
+            private_key_path: None,
+            private_key_passphrase: None,
+            key_id: None,
+            session_name: "my-session".into(),
+            project_root: Some("/home/user/code/project".into()),
+        };
+
+        let cmd = build_zellij_connect_command(&config);
+        assert!(cmd.contains("zellij list-sessions -n -q"));
+        assert!(cmd.contains("cd /home/user/code/project && zellij attach --create my-session"));
+    }
+
+    #[test]
+    fn test_build_zellij_connect_command_without_project_root_falls_back() {
+        let config = SshConfig {
+            host: "host".into(),
+            port: 22,
+            username: "user".into(),
+            auth_method: AuthMethod::Password,
+            password: Some("secret".into()),
+            private_key_path: None,
+            private_key_passphrase: None,
+            key_id: None,
+            session_name: "my-session".into(),
+            project_root: None,
+        };
+
+        assert_eq!(
+            build_zellij_connect_command(&config),
+            "zellij attach --create my-session || $SHELL"
+        );
     }
 }

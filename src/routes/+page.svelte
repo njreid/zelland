@@ -26,6 +26,9 @@
     let newHostAddress = $state('');
     let newHostUser = $state('');
     let newHostPass = $state('');
+    let newHostAuthMethod = $state<'Password' | 'Key' | 'PrivateKey'>('Password');
+    let newHostKeyId = $state('');
+    let newHostPrivateKeyPath = $state('');
 
     // Add Session form
     let newSessionName = $state('');
@@ -44,8 +47,16 @@
 
     async function handleAddHost() {
         if (newHostAddress && newHostUser) {
-            await appState.addHost(newHostAddress, newHostAddress, newHostUser, newHostPass);
+            await appState.addHost(
+                newHostAddress,
+                newHostAddress,
+                newHostUser,
+                newHostAuthMethod === 'Password' ? newHostPass : undefined,
+                newHostAuthMethod === 'Key' ? newHostKeyId : undefined,
+                newHostAuthMethod === 'PrivateKey' ? newHostPrivateKeyPath : undefined,
+            );
             newHostAddress = ''; newHostUser = ''; newHostPass = '';
+            newHostAuthMethod = 'Password'; newHostKeyId = ''; newHostPrivateKeyPath = '';
             closeModal();
         }
     }
@@ -296,7 +307,23 @@
                 <form onsubmit={(e) => { e.preventDefault(); handleAddHost(); }} class="modal-form">
                     <input type="text"     placeholder="Address (IP/FQDN)" bind:value={newHostAddress} required />
                     <input type="text"     placeholder="Username"           bind:value={newHostUser}    required />
-                    <input type="password" placeholder="Password (optional)" bind:value={newHostPass} />
+                    <select bind:value={newHostAuthMethod}>
+                        <option value="Password">Password</option>
+                        <option value="Key">SSH Identity</option>
+                        <option value="PrivateKey">Private Key File</option>
+                    </select>
+                    {#if newHostAuthMethod === 'Password'}
+                        <input type="password" placeholder="Password (optional)" bind:value={newHostPass} />
+                    {:else if newHostAuthMethod === 'Key'}
+                        <select bind:value={newHostKeyId} required>
+                            <option value="" disabled selected>Select Identity...</option>
+                            {#each appState.sshKeys as key}
+                                <option value={key.id}>{key.label}</option>
+                            {/each}
+                        </select>
+                    {:else}
+                        <input type="text" placeholder="~/.ssh/id_ed25519" bind:value={newHostPrivateKeyPath} required />
+                    {/if}
                     <div class="modal-actions">
                         <button type="submit">Add Host</button>
                         <button type="button" class="secondary outline" onclick={closeModal}>Cancel</button>

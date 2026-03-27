@@ -196,6 +196,39 @@ Integrate push-to-talk speech-to-text from the `src-voice/` prototype into the m
 - [ ] **Port Integration Tests**: Move `e2e_speech.rs` to `src-tauri/tests/` and verify with the `hound` fixture.
 - [ ] **Regression Testing**: Verify existing SSH, WireGuard, and Annotation features are unaffected by the new audio/inference dependencies.
 
+### Phase 10: Per-User Helper Migration
+
+- Status: planned. Migrate the remote daemon into a per-user helper installed in `~/bin`, started with `nohup`, and updated automatically on SSH connect while preserving all existing daemon behavior.
+
+#### 10A: Packaging and Release Pipeline
+
+- [x] Create `docs/features/PER_USER_HELPER_DESIGN.md` and keep it current during implementation.
+- [x] Add build-time version metadata for `zlnd` so the client can compare expected and remote helper versions.
+- [x] Add a GitHub Actions workflow that builds helper artifacts for Linux `x86_64`, Linux `aarch64`, and macOS.
+- [x] Publish helper artifacts with stable filenames on tagged releases.
+
+#### 10B: Remote Helper Bootstrap
+
+- [x] Detect remote OS/arch during SSH session setup in `src-tauri/src/ssh.rs`.
+- [x] Check for `~/bin/zlnd` and probe its version before daemon API usage.
+- [x] Upload/install the matching helper artifact into `~/bin` when missing or outdated.
+- [x] Ensure the helper is executable and create any required per-user state directories.
+- [x] Start the helper with `nohup` when it is not running so notifications survive SSH disconnects.
+- [x] Add helper health checks and bounded retry logic before client API calls proceed.
+
+#### 10C: Client Integration Preservation
+
+- [x] Preserve direct `http://<host>:8083` / `ws://<host>:8083/ws` assumptions while bootstrapping the helper first.
+- [x] Preserve all existing project, file, annotation, asset, notification, and recent-session workflows.
+- [x] Keep loopback protections on trigger endpoints in the new per-user topology.
+
+#### 10D: Verification
+
+- [ ] Add Rust tests for platform detection, version parsing, and helper bootstrap command generation.
+- [ ] Add integration coverage for install-if-missing, upgrade-if-stale, and start-if-not-running flows.
+- [ ] Verify notifications still work after the interactive SSH session terminates.
+- [ ] Update `TESTING.md` with automated and manual verification details for the helper migration.
+
 ### Future: Zellij Action Buttons
 
 Expose `zellij -s $SESSION action <action>` via `runZellijAction()` as UI buttons (TopBar for desktop, KeybarNative for mobile).

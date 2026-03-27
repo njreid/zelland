@@ -1,5 +1,7 @@
 # zelland Companion Daemon Design
 
+> **Status note (2026-03):** This document describes the current daemon API and behavior that must be preserved. The active migration plan for turning `zlnd` into a per-user helper installed in `~/bin` lives in `docs/features/PER_USER_HELPER_DESIGN.md`.
+
 ## 1. Architectural Overview
 
 The **zelland Daemon** (`zlnd`) is a backend service written in **Rust**, running on the remote host (Linux). It acts as a bridge between the host's filesystem and the zelland application (Android + Desktop), enabling rich media interactions, collaborative annotations via YJS CRDT, and workflow enhancements beyond the terminal emulator.

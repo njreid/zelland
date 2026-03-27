@@ -17,7 +17,10 @@ export interface Host {
     label: string;
     address: string;
     username: string;
+    port: number;
     password?: string;
+    key_id?: string;
+    private_key_path?: string;
     reachable: boolean;
     error?: string;
     projects: Project[];
@@ -50,6 +53,7 @@ export interface Session {
     port: number;
     type: 'ssh';
     zellijSession: string;
+    projectRoot?: string;
     key_id?: string;
     private_key_path?: string;
     status: 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -126,19 +130,58 @@ function createAppState() {
         if (logs.length > 50) logs.shift();
     }
 
-    function buildSshConfig(session: Session) {
-        const authMethod = session.key_id ? "Key" : session.private_key_path ? "PrivateKey" : "Password";
+    function buildSshConfig(target: {
+        host: string;
+        port?: number;
+        username: string;
+        password?: string;
+        key_id?: string;
+        private_key_path?: string;
+        session_name: string;
+        project_root?: string;
+    }) {
+        const authMethod = target.key_id ? "Key" : target.private_key_path ? "PrivateKey" : "Password";
         return {
-            host: session.hostAddress,
-            port: session.port,
-            username: session.username,
+            host: target.host,
+            port: target.port ?? 22,
+            username: target.username,
             auth_method: authMethod,
-            password: session.password || null,
-            private_key_path: session.private_key_path || null,
+            password: target.password || null,
+            private_key_path: target.private_key_path || null,
             private_key_passphrase: null,
-            key_id: session.key_id || null,
-            session_name: session.zellijSession
+            key_id: target.key_id || null,
+            session_name: target.session_name,
+            project_root: target.project_root || null,
         };
+    }
+
+    async function ensureSessionHelper(session: Session) {
+        await invoke("ensure_remote_helper", {
+            config: buildSshConfig({
+                host: session.hostAddress,
+                port: session.port,
+                username: session.username,
+                password: session.password,
+                key_id: session.key_id,
+                private_key_path: session.private_key_path,
+                session_name: session.zellijSession,
+                project_root: session.projectRoot,
+            })
+        });
+    }
+
+    async function ensureHostHelper(host: Host) {
+        await invoke("ensure_remote_helper", {
+            config: buildSshConfig({
+                host: host.address,
+                port: host.port,
+                username: host.username,
+                password: host.password,
+                key_id: host.key_id,
+                private_key_path: host.private_key_path,
+                session_name: 'zelland-bootstrap',
+            })
+        });
     }
 
     async function fetchDaemonRecentSessions() {
@@ -168,11 +211,11 @@ function createAppState() {
     async function saveToStore() {
         try {
             const store = await load(STORE_PATH);
-            await store.set("hosts", hosts.map(({ id, label, address, username, password }) => ({
-                id, label, address, username, password
+            await store.set("hosts", hosts.map(({ id, label, address, username, port, password, key_id, private_key_path }) => ({
+                id, label, address, username, port, password, key_id, private_key_path
             })));
-            await store.set("sessions", sessions.map(({ id, label, hostAddress, username, password, port, type, zellijSession, key_id, private_key_path }) => ({
-                id, label, hostAddress, username, password, port, type, zellijSession, key_id, private_key_path
+            await store.set("sessions", sessions.map(({ id, label, hostAddress, username, password, port, type, zellijSession, projectRoot, key_id, private_key_path }) => ({
+                id, label, hostAddress, username, password, port, type, zellijSession, projectRoot, key_id, private_key_path
             })));
             await store.set("terminalFontSize", terminalFontSize);
             await store.set("terminalFontWeight", terminalFontWeight);
@@ -199,6 +242,7 @@ function createAppState() {
 
         try {
             log(`Fetching projects for ${host.label}...`);
+            await ensureHostHelper(host);
             const projects = await invoke<any[]>("daemon_get_projects", { url: `http://${host.address}:8083` });
             host.projects = projects.map(p => ({ ...p, hostId: host.id }));
             host.reachable = true;
@@ -244,7 +288,19 @@ function createAppState() {
 
             const command = `zellij -s ${session.zellijSession} action ${action}`;
             try {
-                await invoke("run_remote_command", { config: buildSshConfig(session), command });
+                await invoke("run_remote_command", {
+                    config: buildSshConfig({
+                        host: session.hostAddress,
+                        port: session.port,
+                        username: session.username,
+                        password: session.password,
+                        key_id: session.key_id,
+                        private_key_path: session.private_key_path,
+                        session_name: session.zellijSession,
+                        project_root: session.projectRoot,
+                    }),
+                    command
+                });
             } catch (e) {
                 log(`Failed to run zellij action: ${e}`, 'error');
             }
@@ -314,9 +370,20 @@ function createAppState() {
             }
         },
 
-        async addHost(label: string, address: string, username: string, password?: string) {
+        async addHost(label: string, address: string, username: string, password?: string, keyId?: string, privateKeyPath?: string) {
             const id = crypto.randomUUID();
-            hosts.push({ id, label, address, username, password, reachable: false, projects: [] });
+            hosts.push({
+                id,
+                label,
+                address,
+                username,
+                port: 22,
+                password,
+                key_id: keyId,
+                private_key_path: privateKeyPath,
+                reachable: false,
+                projects: []
+            });
             await saveToStore();
             fetchProjectsForHost(id);
         },
@@ -332,11 +399,19 @@ function createAppState() {
 
         async addSession(label: string, hostAddress: string, username: string, type: 'ssh', zellijSession: string, password?: string, keyId?: string, privateKeyPath?: string) {
             const id = crypto.randomUUID();
+            const host = hosts.find(h => h.address === hostAddress && h.username === username);
+            const project = host?.projects.find(p => p.session_name === zellijSession);
             sessions.push({
                 id, label, hostAddress, username, password,
-                port: 22, type, zellijSession, status: 'disconnected',
+                port: host?.port ?? 22, type, zellijSession, status: 'disconnected',
+                projectRoot: project?.root_path,
                 key_id: keyId, private_key_path: privateKeyPath
             });
+            if (host) {
+                host.password = password;
+                host.key_id = keyId;
+                host.private_key_path = privateKeyPath;
+            }
             await saveToStore();
         },
 
@@ -348,7 +423,16 @@ function createAppState() {
 
         getSshConfig(sessionId: string) {
             const session = sessions.find(s => s.id === sessionId);
-            return session ? buildSshConfig(session) : null;
+            return session ? buildSshConfig({
+                host: session.hostAddress,
+                port: session.port,
+                username: session.username,
+                password: session.password,
+                key_id: session.key_id,
+                private_key_path: session.private_key_path,
+                session_name: session.zellijSession,
+                project_root: session.projectRoot,
+            }) : null;
         },
 
         onSessionConnected(sessionId: string) {
@@ -358,13 +442,22 @@ function createAppState() {
             log(`Connected to session: ${session.label}.`);
             recentSessionIds = [sessionId, ...recentSessionIds.filter(id => id !== sessionId)].slice(0, 3);
             saveToStore();
-            invoke("daemon_record_session", {
-                url: `http://${session.hostAddress}:8083`,
-                sessionName: session.zellijSession
-            }).then(() => fetchDaemonRecentSessions()).catch(() => {});
-            invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` })
-                .then(() => { daemonConnected = true; })
-                .catch(() => { daemonConnected = false; });
+
+            (async () => {
+                try {
+                    await ensureSessionHelper(session);
+                    await invoke("daemon_record_session", {
+                        url: `http://${session.hostAddress}:8083`,
+                        sessionName: session.zellijSession
+                    });
+                    fetchDaemonRecentSessions().catch(() => {});
+                    await invoke("daemon_connect", { url: `ws://${session.hostAddress}:8083/ws` });
+                    daemonConnected = true;
+                } catch (e) {
+                    console.warn("Failed to bootstrap remote helper:", e);
+                    daemonConnected = false;
+                }
+            })();
 
             this.triggerTerminalResize();
 
@@ -412,12 +505,21 @@ function createAppState() {
                     hostAddress: host.address,
                     username: host.username,
                     password: host.password,
-                    port: 22,
+                    port: host.port,
                     type: 'ssh',
                     zellijSession: project.session_name,
+                    projectRoot: project.root_path,
+                    key_id: host.key_id,
+                    private_key_path: host.private_key_path,
                     status: 'disconnected'
                 };
                 sessions.push(session);
+                await saveToStore();
+            } else {
+                session.projectRoot = project.root_path;
+                session.password = host.password;
+                session.key_id = host.key_id;
+                session.private_key_path = host.private_key_path;
                 await saveToStore();
             }
 
@@ -427,6 +529,7 @@ function createAppState() {
         async connectDaemonSession(entry: DaemonRecentSession) {
             const host = hosts.find(h => h.address === entry.hostAddress);
             if (!host) return;
+            const project = host.projects.find(p => p.session_name === entry.sessionName);
 
             const sessionId = `daemon-${entry.hostAddress}-${entry.sessionName}`;
             let session = sessions.find(
@@ -441,12 +544,21 @@ function createAppState() {
                     hostAddress: host.address,
                     username: host.username,
                     password: host.password,
-                    port: 22,
+                    port: host.port,
                     type: 'ssh',
                     zellijSession: entry.sessionName,
+                    projectRoot: project?.root_path,
+                    key_id: host.key_id,
+                    private_key_path: host.private_key_path,
                     status: 'disconnected'
                 };
                 sessions.push(session);
+                await saveToStore();
+            } else {
+                session.projectRoot = project?.root_path ?? session.projectRoot;
+                session.password = host.password;
+                session.key_id = host.key_id;
+                session.private_key_path = host.private_key_path;
                 await saveToStore();
             }
 
@@ -506,8 +618,8 @@ function createAppState() {
             const savedMarkdownFontWeight = await store.get<string>("markdownFontWeight");
             const savedRecentIds = await store.get<string[]>("recentSessionIds");
 
-            if (savedHosts) hosts = savedHosts.map(h => ({ ...h, reachable: false, projects: [] }));
-            if (savedSessions) sessions = savedSessions.map(s => ({ ...s, status: 'disconnected' }));
+            if (savedHosts) hosts = savedHosts.map(h => ({ ...h, port: h.port ?? 22, reachable: false, projects: [] }));
+            if (savedSessions) sessions = savedSessions.map(s => ({ ...s, port: s.port ?? 22, status: 'disconnected' }));
             if (savedFontSize) terminalFontSize = savedFontSize;
             if (savedFontWeight) terminalFontWeight = savedFontWeight;
             if (savedMarkdownFontSize) markdownFontSize = savedMarkdownFontSize;
@@ -601,7 +713,19 @@ function createAppState() {
                         if (tab_index > 0) {
                             setTimeout(() => {
                                 const command = `zellij -s ${session.zellijSession} action go-to-tab ${tab_index}`;
-                                invoke("run_remote_command", { config: buildSshConfig(session), command }).catch(() => {});
+                                invoke("run_remote_command", {
+                                    config: buildSshConfig({
+                                        host: session.hostAddress,
+                                        port: session.port,
+                                        username: session.username,
+                                        password: session.password,
+                                        key_id: session.key_id,
+                                        private_key_path: session.private_key_path,
+                                        session_name: session.zellijSession,
+                                        project_root: session.projectRoot,
+                                    }),
+                                    command
+                                }).catch(() => {});
                             }, 500);
                         }
                     }

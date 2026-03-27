@@ -472,6 +472,7 @@ mod tests {
             private_key_passphrase: None,
             key_id: Some("my-key-id".to_string()),
             session_name: "main".to_string(),
+            project_root: None,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -493,6 +494,7 @@ mod tests {
             private_key_passphrase: Some("my-passphrase".to_string()),
             key_id: None,
             session_name: "main".to_string(),
+            project_root: None,
         };
 
         let json = serde_json::to_string(&config).unwrap();

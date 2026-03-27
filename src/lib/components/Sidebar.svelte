@@ -12,6 +12,9 @@
     let newHostAddress = $state('');
     let newHostUser = $state('');
     let newHostPass = $state('');
+    let newHostAuthMethod = $state<'Password' | 'Key' | 'PrivateKey'>('Password');
+    let newHostKeyId = $state('');
+    let newHostPrivateKeyPath = $state('');
 
     // Session form
     let newSessionName = $state('');
@@ -24,13 +27,21 @@
 
     async function handleAddHost() {
         if (newHostAddress && newHostUser) {
-            await appState.addHost(newHostAddress, newHostAddress, newHostUser, newHostPass);
+            await appState.addHost(
+                newHostAddress,
+                newHostAddress,
+                newHostUser,
+                newHostAuthMethod === 'Password' ? newHostPass : undefined,
+                newHostAuthMethod === 'Key' ? newHostKeyId : undefined,
+                newHostAuthMethod === 'PrivateKey' ? newHostPrivateKeyPath : undefined,
+            );
             resetHostForm();
         }
     }
 
     function resetHostForm() {
         newHostAddress = ''; newHostUser = ''; newHostPass = '';
+        newHostKeyId = ''; newHostPrivateKeyPath = ''; newHostAuthMethod = 'Password';
         showAddHost = false;
     }
 
@@ -84,7 +95,23 @@
             <form onsubmit={(e) => { e.preventDefault(); handleAddHost(); }}>
                 <input type="text" placeholder="Address (IP/FQDN)" bind:value={newHostAddress} aria-label="Address" required />
                 <input type="text" placeholder="Username" bind:value={newHostUser} aria-label="Username" required />
-                <input type="password" placeholder="Password (Optional)" bind:value={newHostPass} aria-label="Password" />
+                <select bind:value={newHostAuthMethod} aria-label="Host Auth Method">
+                    <option value="Password">Password</option>
+                    <option value="Key">SSH Identity</option>
+                    <option value="PrivateKey">Private Key File</option>
+                </select>
+                {#if newHostAuthMethod === 'Password'}
+                    <input type="password" placeholder="Password (Optional)" bind:value={newHostPass} aria-label="Password" />
+                {:else if newHostAuthMethod === 'Key'}
+                    <select bind:value={newHostKeyId} aria-label="Host SSH Identity" required>
+                        <option value="" disabled selected>Select Identity...</option>
+                        {#each appState.sshKeys as key}
+                            <option value={key.id}>{key.label}</option>
+                        {/each}
+                    </select>
+                {:else}
+                    <input type="text" placeholder="~/.ssh/id_ed25519" bind:value={newHostPrivateKeyPath} aria-label="Host Private Key Path" required />
+                {/if}
                 <div class="grid">
                     <button type="submit">Add</button>
                     <button type="button" class="secondary outline" onclick={resetHostForm}>Cancel</button>
