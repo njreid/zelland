@@ -38,6 +38,17 @@ fn fs_main() -> @location(0) vec4<f32> {
 }
 "#;
 
+const SELECTION_SHADER: &str = r#"
+@vertex
+fn vs_main(@location(0) pos: vec2<f32>) -> @builtin(position) vec4<f32> {
+    return vec4<f32>(pos, 0.0, 1.0);
+}
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.3, 0.5, 1.0, 0.35);
+}
+"#;
+
 /// A single styled run of text within one terminal row.
 #[derive(Clone, PartialEq)]
 struct CellRun {
@@ -84,6 +95,11 @@ pub struct Renderer {
     cursor_bind_group: Option<wgpu::BindGroup>,
     /// Cursor position as (pixel_x, pixel_y, cell_w, cell_h); None if hidden.
     cursor_pixel_rect: Option<(f32, f32, f32, f32)>,
+
+    selection: Option<(i32, i32, i32, i32)>, // (start_col, start_row, end_col, end_row) normalized
+    selection_pipeline: Option<wgpu::RenderPipeline>,
+    selection_vertex_buf: Option<wgpu::Buffer>,
+    selection_vertex_count: u32,
 
     debug_frames_saved: u32,
 }
@@ -236,12 +252,17 @@ impl Renderer {
             cursor_uniform_buf: None,
             cursor_bind_group: None,
             cursor_pixel_rect: None,
+            selection: None,
+            selection_pipeline: None,
+            selection_vertex_buf: None,
+            selection_vertex_count: 0,
             debug_frames_saved: 0,
         });
 
         // Build the initial cursor pipeline using the existing guard — no second lock needed.
         if let Some(r) = renderer.as_mut() {
             r.build_cursor_resources();
+            r.build_selection_resources();
         }
 
         info!("Renderer initialized");
@@ -325,6 +346,7 @@ impl Renderer {
         self.row_cache.clear();
         info!("Text pipeline rebuilt for format {:?}", format);
         self.build_cursor_resources();
+        self.build_selection_resources();
     }
 
     /// Create (or recreate) the cursor shader pipeline and its uniform resources.
@@ -412,6 +434,136 @@ impl Renderer {
         self.cursor_bind_group_layout = Some(bgl);
         self.cursor_uniform_buf = Some(uniform_buf);
         self.cursor_bind_group = Some(bind_group);
+    }
+
+    fn build_selection_resources(&mut self) {
+        let format = self.config.as_ref()
+            .map(|c| c.format)
+            .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
+        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("selection_shader"),
+            source: wgpu::ShaderSource::Wgsl(SELECTION_SHADER.into()),
+        });
+        let pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("selection_pipeline"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: 8,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: 0,
+                        shader_location: 0,
+                    }],
+                }],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        // Pre-allocate for up to 50 selection rows × 6 verts × 8 bytes (2×f32)
+        let vertex_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("selection_vertex_buf"),
+            size: 50 * 6 * 8,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.selection_pipeline = Some(pipeline);
+        self.selection_vertex_buf = Some(vertex_buf);
+    }
+
+    pub fn set_selection(&mut self, sc: i32, sr: i32, ec: i32, er: i32, active: bool) {
+        if !active {
+            self.selection = None;
+            self.selection_vertex_count = 0;
+            return;
+        }
+        // Normalize so start <= end
+        let (sc, sr, ec, er) = if sr < er || (sr == er && sc <= ec) {
+            (sc, sr, ec, er)
+        } else {
+            (ec, er, sc, sr)
+        };
+        self.selection = Some((sc, sr, ec, er));
+        self.update_selection_vertices(sc, sr, ec, er);
+    }
+
+    fn update_selection_vertices(&mut self, sc: i32, sr: i32, ec: i32, er: i32) {
+        let (sw, sh) = match self.config.as_ref() {
+            Some(c) => (c.width as f32, c.height as f32),
+            None => return,
+        };
+        let cw = self.cell_width;
+        let ch = self.cell_height;
+        let px_to_ndc_x = |x: f32| (x / sw) * 2.0 - 1.0;
+        let px_to_ndc_y = |y: f32| 1.0 - (y / sh) * 2.0;
+        let mut verts: Vec<f32> = Vec::new();
+        let mut push_rect = |x0: f32, y0: f32, x1: f32, y1: f32| {
+            let nx0 = px_to_ndc_x(x0); let nx1 = px_to_ndc_x(x1);
+            let ny_top = px_to_ndc_y(y0); let ny_bot = px_to_ndc_y(y1);
+            verts.extend_from_slice(&[
+                nx0, ny_top,  nx1, ny_top,  nx0, ny_bot,
+                nx1, ny_top,  nx1, ny_bot,  nx0, ny_bot,
+            ]);
+        };
+        for row in sr..=er {
+            let y0 = row as f32 * ch;
+            let y1 = y0 + ch;
+            let x0 = if row == sr { sc as f32 * cw } else { 0.0 };
+            let x1 = if row == er { (ec + 1) as f32 * cw } else { sw };
+            if x0 < x1 { push_rect(x0, y0, x1, y1); }
+        }
+        let max_floats = 50 * 6 * 2;
+        if verts.len() > max_floats { verts.truncate(max_floats); }
+        self.selection_vertex_count = (verts.len() / 2) as u32;
+        if let Some(buf) = &self.selection_vertex_buf {
+            let bytes = unsafe {
+                std::slice::from_raw_parts(verts.as_ptr() as *const u8, verts.len() * 4)
+            };
+            self.queue.write_buffer(buf, 0, bytes);
+        }
+    }
+
+    pub fn extract_text(&self, sc: i32, sr: i32, ec: i32, er: i32) -> String {
+        // Normalize
+        let (sc, sr, ec, er) = if sr < er || (sr == er && sc <= ec) {
+            (sc, sr, ec, er)
+        } else {
+            (ec, er, sc, sr)
+        };
+        let mut result = String::new();
+        for row_idx in sr as usize..=(er as usize).min(self.row_cache.len().saturating_sub(1)) {
+            if !result.is_empty() { result.push('\n'); }
+            let col_start = if row_idx == sr as usize { sc } else { 0 };
+            let col_end   = if row_idx == er as usize { ec } else { i32::MAX };
+            let mut col = 0i32;
+            for run in &self.row_cache[row_idx] {
+                for ch in run.text.chars() {
+                    if col >= col_start && col <= col_end { result.push(ch); }
+                    col += 1;
+                }
+            }
+        }
+        result
     }
 
     /// Write NDC cursor rect + white color into the uniform buffer.
@@ -552,6 +704,29 @@ impl Renderer {
 
             if let Err(e) = self.text_renderer.render(&self.atlas, &self.viewport, &mut rpass) {
                 error!("Failed to render text: {}", e);
+            }
+        }
+
+        // Pass 3: selection overlay (semi-transparent blue, drawn after text).
+        if self.selection_vertex_count > 0 {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("selection_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            if let (Some(pipeline), Some(vbuf)) = (&self.selection_pipeline, &self.selection_vertex_buf) {
+                rpass.set_pipeline(pipeline);
+                rpass.set_vertex_buffer(0, vbuf.slice(..));
+                rpass.draw(0..self.selection_vertex_count, 0..1);
             }
         }
 

@@ -11,14 +11,20 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.util.Base64
 import android.util.Log
+import android.view.ActionMode
 import android.view.GestureDetector
 import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import android.content.ClipboardManager
+import android.content.ClipData
+import android.view.ScaleGestureDetector
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
@@ -37,6 +43,17 @@ class MainActivity : TauriActivity() {
     internal var hiddenEditText: EditText? = null
     internal var keybarPlugin: KeybarPlugin? = null
     private lateinit var mDetector: GestureDetectorCompat
+
+    // Selection state
+    private var selectionActive = false
+    private var selStartCol = 0; private var selStartRow = 0
+    private var selEndCol = 0;   private var selEndRow = 0
+    private var actionMode: ActionMode? = null
+
+    // Pinch-to-zoom
+    private lateinit var scaleDetector: ScaleGestureDetector
+    private var baseFontSize = 38f  // physical pixels, matches CELL_HEIGHT default
+    private var isPinching = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,7 +91,13 @@ class MainActivity : TauriActivity() {
             }
 
             override fun onLongPress(e: MotionEvent) {
-                passTouchToRust("right_click", e.x, e.y)
+                val (col, row) = pixelToCell(e.x, e.y)
+                selStartCol = col; selStartRow = row
+                // Default selection: rest of the line from long-press point
+                selEndCol = (col + 12).coerceAtMost(255); selEndRow = row
+                selectionActive = true
+                setSelectionHighlight(selStartCol, selStartRow, selEndCol, selEndRow, true)
+                startSelectionActionMode()
             }
 
             override fun onFling(
@@ -106,6 +129,21 @@ class MainActivity : TauriActivity() {
                     return true
                 }
                 return false
+            }
+        })
+
+        scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                isPinching = true
+                return true
+            }
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                baseFontSize = (baseFontSize * detector.scaleFactor).coerceIn(20f, 80f)
+                updateFontSizeToRust(baseFontSize)
+                return true
+            }
+            override fun onScaleEnd(detector: ScaleGestureDetector) {
+                isPinching = false
             }
         })
     }
@@ -190,7 +228,25 @@ class MainActivity : TauriActivity() {
             // which silently fails in hardware-accelerated Tauri view hierarchies.
             setZOrderMediaOverlay(true)
             setOnTouchListener { _, event ->
-                mDetector.onTouchEvent(event)
+                scaleDetector.onTouchEvent(event)
+
+                if (selectionActive) {
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_MOVE -> {
+                            val (col, row) = pixelToCell(event.x, event.y)
+                            if (col != selEndCol || row != selEndRow) {
+                                selEndCol = col; selEndRow = row
+                                setSelectionHighlight(selStartCol, selStartRow, selEndCol, selEndRow, true)
+                            }
+                            return@setOnTouchListener true
+                        }
+                        MotionEvent.ACTION_UP -> return@setOnTouchListener true
+                    }
+                }
+
+                if (!isPinching) {
+                    mDetector.onTouchEvent(event)
+                }
                 true
             }
             holder.addCallback(object : android.view.SurfaceHolder.Callback {
@@ -385,10 +441,65 @@ class MainActivity : TauriActivity() {
         return sb.toString()
     }
 
+    private fun pixelToCell(x: Float, y: Float): Pair<Int, Int> {
+        val dims = getCellDimensions()
+        val cw = if (dims[0] > 0) dims[0] else 17f
+        val ch = if (dims[1] > 0) dims[1] else 38f
+        return Pair((x / cw).toInt().coerceAtLeast(0), (y / ch).toInt().coerceAtLeast(0))
+    }
+
+    private fun startSelectionActionMode() {
+        actionMode?.finish()
+        actionMode = (surfaceView ?: window.decorView).startActionMode(object : ActionMode.Callback {
+            override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                menu.add(0, 1, 0, android.R.string.copy)
+                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(0, 2, 1, android.R.string.paste)
+                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                return true
+            }
+            override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+                return when (item.itemId) {
+                    1 -> { doCopy(); mode.finish(); true }
+                    2 -> { doPaste(); mode.finish(); true }
+                    else -> false
+                }
+            }
+            override fun onDestroyActionMode(mode: ActionMode) {
+                selectionActive = false
+                setSelectionHighlight(0, 0, 0, 0, false)
+                actionMode = null
+            }
+        }, ActionMode.TYPE_FLOATING)
+    }
+
+    private fun doCopy() {
+        val text = getSelectionText(selStartCol, selStartRow, selEndCol, selEndRow)
+        val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("terminal", text))
+    }
+
+    private fun doPaste() {
+        val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = cm.primaryClip ?: return
+        if (clip.itemCount == 0) return
+        val text = clip.getItemAt(0).coerceToText(this).toString()
+        if (text.isEmpty()) return
+        // Use bracketed paste mode so zellij/shell handles the paste safely
+        val bracketed = "\u001b[200~$text\u001b[201~"
+        passPasteToRust(bracketed.toByteArray(Charsets.UTF_8))
+    }
+
     private external fun passSurfaceToRust(surface: Surface)
     private external fun passResizeToRust(width: Int, height: Int)
     private external fun passTouchToRust(action: String, x: Float, y: Float)
     private external fun passSurfaceDestroyedToRust()
+    private external fun getSelectionText(sc: Int, sr: Int, ec: Int, er: Int): String
+    private external fun setSelectionHighlight(sc: Int, sr: Int, ec: Int, er: Int, active: Boolean)
+    private external fun passPasteToRust(data: ByteArray)
+    private external fun getCellDimensions(): FloatArray
+    private external fun updateFontSizeToRust(physicalPx: Float)
 
     fun generateBiometricKey(alias: String): Boolean {
         return try {
